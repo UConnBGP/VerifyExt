@@ -25,8 +25,9 @@ def connectToDB():
                                 database = cparser['bgp']['database'],
                                 user = cparser['bgp']['user'],
                                 password = cparser['bgp']['password'])
-    except:
-        logging.info(t.strftime("%c") + ": Login failed")
+        logging.info(datetime.now().strftime("%c") + ": Login successful.")
+    except: 
+        logging.info(datetime.now().strftime("%c") + ": Login failed.")
     # Create the cursor
     cur = conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor)
     return cur
@@ -44,9 +45,8 @@ def main():
         sys.exit(-1)
                             
     # Logging config
-    t = datetime.now()
     logging.basicConfig(level=logging.INFO, filename=LOG_LOC + t.strftime("%d_%m_%Y"))
-    logging.info(t.strftime("%c") + ": Traceback Start...")
+    logging.info(datetime.now().strftime("%c") + ": Traceback Start...")
     
     # Create a cursor for SQL Queries
     cursor = connectToDB();
