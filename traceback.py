@@ -1,3 +1,4 @@
+import sys
 import psycopg2
 import psycopg2.extras
 import shutil
@@ -44,7 +45,7 @@ def main():
                             
     # Logging config
     t = datetime.now()
-    logging.basicConfig(level=logging.INFO, filename=LOG_LOCATION + t.strftime("%d_%m_%Y"))
+    logging.basicConfig(level=logging.INFO, filename=LOG_LOC + t.strftime("%d_%m_%Y"))
     logging.info(t.strftime("%c") + ": Traceback Start...")
     
     # Create a cursor for SQL Queries
