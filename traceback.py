@@ -7,7 +7,7 @@ import logging
 from configparser import ConfigParser
 from datetime import datetime
 
-LOG_LOC = r"/tmp/"
+LOG_LOC = r"/tmp/" # this can be changed to a local spot
 TABLE_NAME = "extrapolation_results"
 
 def connectToDB():
@@ -39,13 +39,13 @@ def main():
     parameter argv[1]  32-bit integer ASN of target AS
     parameter argv[2]  CIDR format ipv4 address for target prefix
     parameter argv[3]  32-bit integer ASN of target prefix origin
-    """
+    
     if len(sys.argv) != 4:
         print("Usage: traceback.py <AS> <prefix> <origin>", file=sys.stderr)
         sys.exit(-1)
-                            
+    """                        
     # Logging config
-    logging.basicConfig(level=logging.INFO, filename=LOG_LOC + t.strftime("%d_%m_%Y"))
+    logging.basicConfig(level=logging.INFO, filename=LOG_LOC + datetime.now().strftime("%d_%m_%Y"))
     logging.info(datetime.now().strftime("%c") + ": Traceback Start...")
     
     # Create a cursor for SQL Queries
