@@ -50,7 +50,7 @@ def getAnn(cursor, AS, prefix, origin):
     sql_select = ("SELECT * FROM " + TABLE_NAME       
                  + " WHERE asn = " + AS 
                  + " AND prefix = (%s)" 
-                 + " AND origin = " + origin)
+                 + " AND origin = "+ origin)
     # Execute the dynamic query
     cursor.execute(sql_select, parameters)
     announcement = cursor.fetchone()
@@ -66,11 +66,20 @@ def main():
     argv[1]  32-bit integer ASN of target AS
     argv[2]  CIDR format ipv4 address for target prefix
     argv[3]  32-bit integer ASN of target prefix origin
-    """
+    """    
+
     if len(sys.argv) != 4:
         print("Usage: traceback.py <AS> <prefix> <origin>", file=sys.stderr)
         sys.exit(-1)
-                            
+    
+    # they're all strings
+    # print(type(sys.argv[1]), type(sys.argv[2]), type(sys.argv[3]), sep=" \n")
+       
+    current_as = sys.argv[1]
+    current_prefix = sys.argv[2]
+    current_origin = sys.argv[3]
+    current_received_from_asn = ""
+                 
     # Logging config 
     logging.basicConfig(level=logging.INFO, filename=LOG_LOC + datetime.now().strftime("%c"))
     logging.info(datetime.now().strftime("%c") + ": Traceback Start...")
@@ -80,7 +89,28 @@ def main():
     
     # Trace back the AS path for that announcement
     #traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
-    getAnn(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
+    
+    i = 1
 
+    """announcement = getAnn(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
+    print(type(announcement[0]), type(announcement[1]), type(announcement[2]), type(announcement[3]), sep=" \n")
+    current_as = str(announcement[0])
+    current_prefix = str(announcement[1])
+    current_origin = str(announcement[2])
+    current_received_from_asn = str(announcement[3])
+    if current_received_from_asn == current_origin:
+        i = 2
+    """
+
+    while (i == 1):
+        announcement = getAnn(cursor, current_as, current_prefix, current_origin)
+        print(announcement)
+        current_as = str(announcement[3])
+        current_prefix = str(announcement[1])
+        current_origin = str(announcement[2])
+        current_received_from_asn = str(announcement[3])
+        if current_received_from_asn == current_origin:
+            i = 2          
+   
 if __name__=="__main__":
     main()
