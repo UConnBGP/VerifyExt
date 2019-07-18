@@ -62,7 +62,7 @@ def traceback(cursor, AS, prefix, origin, result_str):
     #print(announcement)
     current_as = str(announcement[3])
     if current_as == origin:
-        result_str = result_str+", "+origin+" }"
+        result_str = result_str+", "+origin+" (origin) }"
         print(result_str)
     else:
         result_str = result_str+", "+current_as
@@ -90,7 +90,7 @@ def main():
     # Create a cursor for SQL Queries
     cursor = connectToDB();
     
-    result_str = "Reconstructed AS-PATH: { "+sys.argv[1]
+    result_str = "Reconstructed AS-PATH: { (destination) "+sys.argv[1]
 
     # Trace back the AS path for that announcement
     traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3], result_str)
