@@ -50,28 +50,39 @@ def getAnn(cursor, AS, prefix, origin):
     sql_select = ("SELECT * FROM " + TABLE_NAME       
                  + " WHERE asn = " + AS 
                  + " AND prefix = (%s)" 
-                 + " AND origin = " + origin)
+                 + " AND origin = "+ origin)
     # Execute the dynamic query
     cursor.execute(sql_select, parameters)
     announcement = cursor.fetchone()
     # Returns tuple or None
     return announcement
 
-def traceback(cursor, AS, prefix, origin):
-    pass
+def traceback(cursor, AS, prefix, origin, result_str):
+    announcement = getAnn(cursor, AS, prefix, origin)
+    #print(announcement)
+    current_as = str(announcement[3])
+    if current_as == origin:
+        result_str = result_str+", "+origin+" (origin) }"
+        print(result_str)
+    else:
+        result_str = result_str+", "+current_as
+        traceback(cursor, current_as, prefix, origin, result_str)
 
 def main():
-    """Connects to a SQL database to push a data partition for storage.
-    
+    """Connects to a SQL database to push a data partition for storage.    
     Parameters:
     argv[1]  32-bit integer ASN of target AS
     argv[2]  CIDR format ipv4 address for target prefix
     argv[3]  32-bit integer ASN of target prefix origin
-    """
+    """    
+
     if len(sys.argv) != 4:
         print("Usage: traceback.py <AS> <prefix> <origin>", file=sys.stderr)
         sys.exit(-1)
-                            
+    
+    # they're all strings
+    # print(type(sys.argv[1]), type(sys.argv[2]), type(sys.argv[3]), sep=" \n")
+                    
     # Logging config 
     logging.basicConfig(level=logging.INFO, filename=LOG_LOC + datetime.now().strftime("%c"))
     logging.info(datetime.now().strftime("%c") + ": Traceback Start...")
@@ -79,9 +90,10 @@ def main():
     # Create a cursor for SQL Queries
     cursor = connectToDB();
     
+    result_str = "Reconstructed AS-PATH: { (destination) "+sys.argv[1]
+
     # Trace back the AS path for that announcement
-    #traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
-    getAnn(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
+    traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3], result_str)
 
 if __name__=="__main__":
     main()
