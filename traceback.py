@@ -57,8 +57,16 @@ def getAnn(cursor, AS, prefix, origin):
     # Returns tuple or None
     return announcement
 
-def traceback(cursor, AS, prefix, origin):
-    pass
+def traceback(cursor, AS, prefix, origin, result_str):
+    announcement = getAnn(cursor, AS, prefix, origin)
+    #print(announcement)
+    current_as = str(announcement[3])
+    if current_as == origin:
+        result_str = result_str+", "+origin+" }"
+        print(result_str)
+    else:
+        result_str = result_str+", "+current_as
+        traceback(cursor, current_as, prefix, origin, result_str)
 
 def main():
     """Connects to a SQL database to push a data partition for storage.    
@@ -74,12 +82,7 @@ def main():
     
     # they're all strings
     # print(type(sys.argv[1]), type(sys.argv[2]), type(sys.argv[3]), sep=" \n")
-       
-    current_as = sys.argv[1]
-    current_prefix = sys.argv[2]
-    current_origin = sys.argv[3]
-    current_received_from_asn = ""
-                 
+                    
     # Logging config 
     logging.basicConfig(level=logging.INFO, filename=LOG_LOC + datetime.now().strftime("%c"))
     logging.info(datetime.now().strftime("%c") + ": Traceback Start...")
@@ -87,30 +90,10 @@ def main():
     # Create a cursor for SQL Queries
     cursor = connectToDB();
     
+    result_str = "Reconstructed AS-PATH: { "+sys.argv[1]
+
     # Trace back the AS path for that announcement
-    #traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
-    
-    i = 1
+    traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3], result_str)
 
-    """announcement = getAnn(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
-    print(type(announcement[0]), type(announcement[1]), type(announcement[2]), type(announcement[3]), sep=" \n")
-    current_as = str(announcement[0])
-    current_prefix = str(announcement[1])
-    current_origin = str(announcement[2])
-    current_received_from_asn = str(announcement[3])
-    if current_received_from_asn == current_origin:
-        i = 2
-    """
-
-    while (i == 1):
-        announcement = getAnn(cursor, current_as, current_prefix, current_origin)
-        print(announcement)
-        current_as = str(announcement[3])
-        current_prefix = str(announcement[1])
-        current_origin = str(announcement[2])
-        current_received_from_asn = str(announcement[3])
-        if current_received_from_asn == current_origin:
-            i = 2          
-   
 if __name__=="__main__":
     main()
