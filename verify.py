@@ -34,9 +34,25 @@ def connectToDB():
     cur = conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor)
     return cur
 
-# we'll return to this
+# returns AS-PATH accessed from a source of MRT
+# announcements as a list, removing repetitions.
 def readMrtAnnRow(cursor, AS, prefix, origin):
-    pass
+    """
+    print("SELECT * FROM " + MRT_TABLE_NAME
+                 + " WHERE prefix = "+prefix
+                 + " AND origin = "+ origin
+                 + " AND "+ AS +" = ANY (as_path)")
+    """
+    parameters = (prefix, )
+    sql_select = ("SELECT * FROM " + MRT_TABLE_NAME       
+                 + " WHERE prefix = (%s)" 
+                 + " AND origin = "+ origin
+                 + " AND "+ AS +" = ANY (as_path)")
+    # Execute the dynamic query
+    cursor.execute(sql_select, parameters)
+    announcement = cursor.fetchone() 
+    print(announcement[2])
+    return announcement
 
 def getAnn(cursor, AS, prefix, origin):
     """Fetch a single announcement for a given AS and prefix/origin
@@ -60,6 +76,44 @@ def getAnn(cursor, AS, prefix, origin):
     announcement = cursor.fetchone()
     # Returns tuple or None
     return announcement
+
+# designing this so it can pull what's needed from
+# verify_data
+def getAnnSet(cursor,prefix, origin):
+    parameters = (prefix, )
+    sql_select = ("SELECT * FROM " + TABLE_NAME
+                 + " WHERE prefix = (%s)"
+                 + " AND origin = "+ origin)
+    # Execute the dynamic query
+    cursor.execute(sql_select, parameters)
+    announcement = cursor.fetchall()
+    
+    ann_set = {announcement[0][0]:announcement[0][3]}
+    # print(ann_set)
+  
+    for i in range(1, len(announcement)):
+        ann_set[announcement[i][0]]= announcement[i][3]
+
+    # print(ann_set)
+
+    # Returns DICT or None
+    return ann_set
+
+def localTraceback(localDict, AS, origin, result_str):
+    if AS in localDict:   
+        current_as = localDict[AS]
+        current_as_str = str(localDict[AS])
+        # print("current AS str: "+current_as_str)
+        if current_as_str == origin:
+            result_str = result_str+", "+origin+" (origin) }"
+            print(result_str)
+        else:
+            result_str = result_str+", "+current_as_str
+            # print(result_str)
+            localTraceback(localDict, current_as, origin, result_str)    
+    else:
+        result_str = result_str+" (origin) }"
+        print(result_str)
 
 def traceback(cursor, AS, prefix, origin, result_str):
     announcement = getAnn(cursor, AS, prefix, origin)
@@ -97,7 +151,14 @@ def main():
     result_str = "Reconstructed AS-PATH: { (destination) "+sys.argv[1]
 
     # Trace back the AS path for that announcement
-    traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3], result_str)
+    my_set = getAnnSet(cursor, sys.argv[2], sys.argv[3])
+    # print(my_set)
+    
+    my_AS = int(sys.argv[1])
+
+    localTraceback(my_set, my_AS, sys.argv[3], result_str)
+    # traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3], result_str)
+    # readMrtAnnRow(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
 
 if __name__=="__main__":
     main()
