@@ -9,7 +9,7 @@ from datetime import datetime
 
 LOG_LOC = r"/tmp/"
 TABLE_NAME = r"verify_data"
-MRT_TABLE_NAME = r"mrt_small"
+MRT_TABLE_NAME = r"mrt_w_roas"
 
 def connectToDB():
     """Creates a connection to the SQL database.
@@ -51,8 +51,16 @@ def readMrtAnnRow(cursor, AS, prefix, origin):
     # Execute the dynamic query
     cursor.execute(sql_select, parameters)
     announcement = cursor.fetchone() 
-    print(announcement[2])
-    return announcement
+    
+    as_path_list = []
+
+    for i in announcement[2]:
+        if as_path_list.count(i)<1:
+            as_path_list.append(i)
+
+    print(as_path_list)
+
+    return as_path_list
 
 def getAnn(cursor, AS, prefix, origin):
     """Fetch a single announcement for a given AS and prefix/origin
@@ -156,9 +164,9 @@ def main():
     
     my_AS = int(sys.argv[1])
 
-    localTraceback(my_set, my_AS, sys.argv[3], result_str)
+    # localTraceback(my_set, my_AS, sys.argv[3], result_str)
     # traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3], result_str)
-    # readMrtAnnRow(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
+    readMrtAnnRow(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
 
 if __name__=="__main__":
     main()
