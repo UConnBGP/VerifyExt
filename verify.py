@@ -8,7 +8,7 @@ from configparser import ConfigParser
 from datetime import datetime
 
 LOG_LOC = r"/tmp/"
-TABLE_NAME = r"verify_data"
+TABLE_NAME = r"verify_data_13030"
 MRT_TABLE_NAME = r"mrt_w_roas"
 
 def connectToDB():
@@ -37,17 +37,11 @@ def connectToDB():
 # returns AS-PATH accessed from a source of MRT
 # announcements as a list, removing repetitions.
 def readMrtAnnRow(cursor, AS, prefix, origin):
-    """
-    print("SELECT * FROM " + MRT_TABLE_NAME
-                 + " WHERE prefix = "+prefix
-                 + " AND origin = "+ origin
-                 + " AND "+ AS +" = ANY (as_path)")
-    """
     parameters = (prefix, )
     sql_select = ("SELECT * FROM " + MRT_TABLE_NAME       
                  + " WHERE prefix = (%s)" 
                  + " AND origin = "+ origin
-                 + " AND "+ AS +" = ANY (as_path)")
+                 + " AND as_path[1] = "+ AS)
     # Execute the dynamic query
     cursor.execute(sql_select, parameters)
     announcement = cursor.fetchone() 
@@ -95,6 +89,8 @@ def getAnnSet(cursor,prefix, origin):
     # Execute the dynamic query
     cursor.execute(sql_select, parameters)
     announcement = cursor.fetchall()
+
+    print(announcement)
     
     ann_set = {announcement[0][0]:announcement[0][3]}
     # print(ann_set)
@@ -159,14 +155,14 @@ def main():
     result_str = "Reconstructed AS-PATH: { (destination) "+sys.argv[1]
 
     # Trace back the AS path for that announcement
-    my_set = getAnnSet(cursor, sys.argv[2], sys.argv[3])
+    # my_set = getAnnSet(cursor, sys.argv[2], sys.argv[3])
     # print(my_set)
     
     my_AS = int(sys.argv[1])
 
-    # localTraceback(my_set, my_AS, sys.argv[3], result_str)
     # traceback(cursor, sys.argv[1], sys.argv[2], sys.argv[3], result_str)
     readMrtAnnRow(cursor, sys.argv[1], sys.argv[2], sys.argv[3])
+    # localTraceback(my_set, my_AS, sys.argv[3], result_str)
 
 if __name__=="__main__":
     main()
