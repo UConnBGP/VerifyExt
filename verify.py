@@ -134,6 +134,8 @@ def traceback(cursor, AS, prefix, origin, result_str):
 
 
 """
+old path compare function, preserved if we need it
+
 takes two different as_paths and compares them, then
 outputs an accuracy estimate as a float
 
@@ -141,9 +143,7 @@ rough version finished, going to test now
 [1,2,3,4], [0,1,2,3,4] -> .8
 [], [1] -> 0
 """
-
-
-def path_compare(as_path1, as_path2):
+def path_compare_old(as_path1, as_path2):
     denominator = float(max(len(as_path1), len(as_path2)))
     numerator = float(0)
     if denominator == 0 or None:
@@ -152,6 +152,35 @@ def path_compare(as_path1, as_path2):
         if as_path1[i] in as_path2:
             numerator = numerator + 1
     return numerator / denominator
+
+"""
+takes two different as_paths and compares them, then
+outputs 1 if they are the same, and 0 if they are different
+
+[1,2,3,4], [0,1,2,3,4] -> 0
+[], [1] -> 0
+[1,2,3,4], [1,2,4,3] -> 0
+[1,2,3,4],[1,2,3,4] -> 1
+
+way to use this:
+    keep track of total number we are comparing, and
+    the total correct will be the sum of the function calls
+    
+    conversely, the total number incorrect will be the total
+    minus the number correct
+    
+    from there, you can calculate an estimate of how likely it is
+    to be correct
+"""
+def path_compare(as_path1, as_path2):
+    if len(as_path2) != len(as_path1):
+        return 0
+    if len(as_path1) == 0 or None:
+        return 0
+    for i in range(len(as_path1)):
+        if as_path1[i] != as_path2[i]:
+            return 0
+    return 1
 
 
 def main():
