@@ -183,6 +183,40 @@ def path_compare(as_path1, as_path2):
     return 1
 
 
+"""
+this is a naive approach to comparing AS paths
+
+takes in two AS paths as lists, and returns
+the number of correct hops and incorrect hops
+
+it starts from the end of the path, and works its way
+back to the start of the list, and excludes the origin
+from the count
+
+I also made sure it would not result in index out of bounds
+errors
+
+tests:
+[1,2,3],[1,2,3] -> [2, 0]
+
+[1,2,3,4], [1,2,4] -> [1, 1]
+^ it compares 4 with 4, 2 with 3, and then excludes the origin
+from the second AS path
+
+this should always have at least one correct hop, as the destination
+ASes should match, otherwise there is a problem
+"""
+def naive_compare(as_path1, as_path2):
+    correct_hops = 0
+    incorrect_hops = 0
+    max_index = min(len(as_path1),len(as_path2))
+    for i in range(-1, -max_index, -1):
+        if(as_path1[i] == as_path2[i]):
+            correct_hops = correct_hops + 1
+        else:
+            incorrect_hops = incorrect_hops + 1
+    return [correct_hops, incorrect_hops]
+
 def main():
     """Connects to a SQL database to push a data partition for storage.
     Parameters:
