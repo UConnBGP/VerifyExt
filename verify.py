@@ -15,7 +15,7 @@ def connectToDB():
     """Creates a connection to the SQL database.
     
     Returns:
-    cur  A reference to the psycopg2 SQL named tuple cursor.
+    cur -  A reference to the psycopg2 SQL named tuple cursor.
     """
     # Get the config profile
     cparser = ConfigParser()
@@ -34,7 +34,6 @@ def connectToDB():
     cur = conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor)
     return cur
 
-
 def readMrtAnnRow(cursor, AS, prefix, origin):
     """Creates a list from the AS path of the MRT announcement.
     
@@ -48,11 +47,10 @@ def readMrtAnnRow(cursor, AS, prefix, origin):
                  + " AND as_path[1] = (%s)")
     # Execute the dynamic query
     cursor.execute(sql_select, parameters)
-    announcement = cursor.fetchone() 
-
+    announcement = cursor.fetchone()
     as_path_list = []
 
-    for i in announcement[3]:
+    for i in announcement[2]:
         if as_path_list.count(int(i))<1:
             as_path_list.append(int(i))
 
@@ -61,7 +59,7 @@ def readMrtAnnRow(cursor, AS, prefix, origin):
 
 def getPrefixSet(cursor, AS):
     """Creates a dictionary from the the set of prefix/origins as key-value pairs.
-    
+
     Returns:
     prefix_dict  A dictionary of every prefix-origin pair passing through an AS according to the control set.
     """
@@ -75,15 +73,17 @@ def getPrefixSet(cursor, AS):
     prefix_dict = {}
 
     for i in announcement:
-        if (i[1],i[2]) not in prefix_dict:
-            prefix_dict[(i[1],i[2])]=i[3]
-
+        if i[0] not in prefix_dict:
+            as_path_list = []
+            for j in i[2]:
+                if as_path_list.count(int(j))<1:
+                    as_path_list.append(int(j))
+            prefix_dict[i[0]]=(as_path_list, i[1])
     return prefix_dict
 
 
 def getAnn(cursor, AS, prefix, origin):
     """Fetch a single announcement for a given AS and prefix/origin.
-    
     Parameters:
     AS  32-bit integer ASN of target AS
     prefix  CIDR format ipv4 address for target prefix
@@ -103,7 +103,6 @@ def getAnn(cursor, AS, prefix, origin):
     announcement = cursor.fetchone()
     # Returns tuple or None
     return announcement
-
 
 def getExtAnnSet(cursor, prefix, origin):
     """ Creates a dictionary for all announcements keyed to prefix.
@@ -128,14 +127,14 @@ def getExtAnnSet(cursor, prefix, origin):
     # Returns DICT or None
     return ann_set
 
-
 def localTraceback(localDict, AS, origin, result_list):
     """Generates a AS path as a list from the passed dictionary object.
     
     Returns:
     result_list  A list of 32-bit int ASNs along the extrapolated AS path.  
     """
-    if AS in localDict:   
+
+    if AS in localDict:
         current_as = localDict[AS]
         current_as_str = str(localDict[AS])
         origin_str = str(origin)
@@ -148,7 +147,6 @@ def localTraceback(localDict, AS, origin, result_list):
             return localTraceback(localDict, current_as, origin, result_list)    
     else:
         return result_list
-
 
 """
 old path compare function, preserved if we need it
@@ -294,7 +292,7 @@ def main():
     if len(sys.argv) != 5:
         print("Usage: traceback.py <AS> <prefix> <origin> <rounds>", file=sys.stderr)
         sys.exit(-1)
-    
+
     # Logging config 
     logging.basicConfig(level=logging.INFO, filename=LOG_LOC + datetime.now().strftime("%c"))
     logging.info(datetime.now().strftime("%c") + ": Traceback Start...")
@@ -315,16 +313,16 @@ def main():
     prefix_set = getPrefixSet(cursor, sys.argv[1])
     
     for i in prefix_set:
-        this_pair = i
-        origin_str = str(i[1])
+        this_prefix = i
+        origin_str = str(prefix_set[i][1])
         
-        # Get the propagted announcents 
-        origin_set = getExtAnnSet(cursor, i[0], origin_str)
+        # Get the propagted announcements
+        origin_set = getExtAnnSet(cursor, i, origin_str)
         # Recreate the extrapolated AS path
-        result_as_path = localTraceback(origin_set, my_AS, i[1], [my_AS])        
+        result_as_path = localTraceback(origin_set, my_AS, prefix_set[i][1], [my_AS])
 
         # Get the MRT announcement path
-        reported_as_path = readMrtAnnRow(cursor, sys.argv[1], i[0], origin_str)
+        reported_as_path = prefix_set[i][0] # this might be faster
 
         hop_results = naive_compare_btf(reported_as_path, result_as_path)
         correct_hops = correct_hops + hop_results[0]

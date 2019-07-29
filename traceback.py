@@ -9,6 +9,7 @@ from datetime import datetime
 
 LOG_LOC = r"/tmp/"
 TABLE_NAME = r"verify_data"
+MRT_TABLE_NAME = r"mrt_small"
 
 def connectToDB():
     """Creates a connection to the SQL database.
@@ -33,6 +34,9 @@ def connectToDB():
     cur = conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor)
     return cur
 
+# we'll return to this
+def readMrtAnnRow(cursor, AS, prefix, origin):
+    pass
 
 def getAnn(cursor, AS, prefix, origin):
     """Fetch a single announcement for a given AS and prefix/origin
