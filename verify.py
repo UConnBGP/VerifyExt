@@ -15,7 +15,7 @@ def connectToDB():
     """Creates a connection to the SQL database.
     
     Returns:
-    cur: a reference to the psycopg2 SQL named tuple cursor
+    cur  A reference to the psycopg2 SQL named tuple cursor.
     """
     # Get the config profile
     cparser = ConfigParser()
@@ -35,9 +35,12 @@ def connectToDB():
     return cur
 
 
-# returns AS-PATH accessed from a source of MRT
-# announcements as a list, removing repetitions.
 def readMrtAnnRow(cursor, AS, prefix, origin):
+    """Creates a list from the AS path of the MRT announcement.
+    
+    Returns:
+    as_path_list  AS-PATH accessed from a source of MRT announcements as a list, removing repetitions.
+    """
     parameters = (prefix, AS)
     sql_select = ("SELECT * FROM " + MRT_TABLE_NAME       
                  + " WHERE prefix = (%s)" 
@@ -56,9 +59,12 @@ def readMrtAnnRow(cursor, AS, prefix, origin):
     return as_path_list
 
 
-# Returns a dict of every prefix-origin pair passing through an AS
-# according to the control set.
 def getPrefixSet(cursor, AS):
+    """Creates a dictionary from the the set of prefix/origins as key-value pairs.
+    
+    Returns:
+    prefix_dict  A dictionary of every prefix-origin pair passing through an AS according to the control set.
+    """
     parameters=(AS,)
     sql_select = ("SELECT * FROM " + MRT_TABLE_NAME       
                  + " WHERE as_path[1] = (%s)")
@@ -76,7 +82,7 @@ def getPrefixSet(cursor, AS):
 
 
 def getAnn(cursor, AS, prefix, origin):
-    """Fetch a single announcement for a given AS and prefix/origin
+    """Fetch a single announcement for a given AS and prefix/origin.
     
     Parameters:
     AS  32-bit integer ASN of target AS
@@ -99,9 +105,12 @@ def getAnn(cursor, AS, prefix, origin):
     return announcement
 
 
-# designing this so it can pull what's needed from
-# the results
-def getAnnSet(cursor,prefix, origin):
+def getExtAnnSet(cursor, prefix, origin):
+    """ Creates a dictionary for all announcements keyed to prefix.
+    
+    Returns:
+    ann_set  A dictionary of prefix origin key-value pairs  
+    """
     # print("fetching announcement set...")
     parameters = (prefix, )
     sql_select = ("SELECT * FROM " + TABLE_NAME
@@ -120,8 +129,12 @@ def getAnnSet(cursor,prefix, origin):
     return ann_set
 
 
-# now returns an int list!
 def localTraceback(localDict, AS, origin, result_list):
+    """Generates a AS path as a list from the passed dictionary object.
+    
+    Returns:
+    result_list  A list of 32-bit int ASNs along the extrapolated AS path.  
+    """
     if AS in localDict:   
         current_as = localDict[AS]
         current_as_str = str(localDict[AS])
@@ -261,7 +274,7 @@ def main():
         origin_str = str(i[1])
         
         # Get the propagted announcents 
-        origin_set = getAnnSet(cursor, i[0], origin_str)
+        origin_set = getExtAnnSet(cursor, i[0], origin_str)
         # Recreate the extrapolated AS path
         result_as_path = localTraceback(origin_set, my_AS, i[1], [my_AS])        
 
