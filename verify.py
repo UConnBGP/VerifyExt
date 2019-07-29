@@ -281,7 +281,7 @@ def main():
         # Get the MRT announcement path
         reported_as_path = readMrtAnnRow(cursor, sys.argv[1], i[0], origin_str)
 
-        hop_results = naive_compare_ftb(reported_as_path, result_as_path)
+        hop_results = naive_compare(reported_as_path, result_as_path)
         correct_hops = correct_hops + hop_results[0]
         incorrect_hops = incorrect_hops + hop_results[1]
 
