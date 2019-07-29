@@ -153,25 +153,43 @@ def localTraceback(localDict, AS, origin, result_list):
 """
 old path compare function, preserved if we need it
 
+it's a good thing i didn't get rid of this. . .
+
+modified arguments so it is clear which argument
+corresponds to which path
+
+return has been changed to the return we now use for it
+
 takes two different as_paths and compares them, then
-outputs an accuracy estimate as a float
+outputs an accuracy estimate as [correct, incorrect]
+
+because the total_hops number is based off the length
+of the propagated path, if it is shorter than the actual it will
+not count against it
+
+like the naive compare, the last index is excluded, though it should
+match anyway because the announcements should have the same origins
+and destinations
 
 rough version finished, going to test now
-[1,2,3,4], [0,1,2,3,4] -> .8
-[], [1] -> 0
+[1,2,3,4], [0,1,2,3,4] -> [3, 0]
+[0,1,2,3,4], [1,2,3,4] -> [3, 1]
+[], [1] -> [0, 0]
 """
-def path_compare_old(as_path1, as_path2):
-    denominator = float(max(len(as_path1), len(as_path2)))
-    numerator = float(0)
-    if denominator == 0 or None:
-        return 0
-    for i in range(len(as_path1)):
-        if as_path1[i] in as_path2:
-            numerator = numerator + 1
-    return numerator / denominator
+def path_compare(propagated_path, actual_path):
+    total_hops = len(propagated_path)
+    correct_hops = 0
+    if total_hops == 0 or None:
+        return [0, 0]
+    for i in range(len(propagated_path) - 1):
+        if propagated_path[i] in actual_path:
+            correct_hops = correct_hops + 1
+    return [correct_hops , total_hops - correct_hops - 1]
 
 
 """
+DO NOT USE
+
 takes two different as_paths and compares them, then
 outputs 1 if they are the same, and 0 if they are different
 
@@ -190,7 +208,7 @@ way to use this:
     from there, you can calculate an estimate of how likely it is
     to be correct
 """
-def path_compare(as_path1, as_path2):
+def path_compare_DEPRECATED(as_path1, as_path2):
     if len(as_path2) != len(as_path1):
         return 0
     if len(as_path1) == 0 or None:
@@ -202,39 +220,66 @@ def path_compare(as_path1, as_path2):
 
 
 """
-this is a naive approach to comparing AS paths
-
+this is a naive approach to comparing AS paths going front of list to back (ftb)
 takes in two AS paths as lists, and returns
 the number of correct hops and incorrect hops
 
-it starts from the end of the path, and works its way
-back to the start of the list, and excludes the origin
-from the count
+as_path1 -> propagated, as_path2 -> actual
 
-I also made sure it would not result in index out of bounds
-errors
+front to back means:
+  o starts at the first index and works back to the last index
+
+ex: [0,1,2,3], it would check
+    0, then 1, then 2, then exclude 3
 
 tests:
 [1,2,3],[1,2,3] -> [2, 0]
-
-[1,2,3,4], [1,2,4] -> [1, 1]
-^ it compares 4 with 4, 2 with 3, and then excludes the origin
-from the second AS path
-
-this should always have at least one correct hop, as the destination
-ASes should match, otherwise there is a problem
+[1,2,3,4], [1,2,4] -> [2, 1]
+this should always have at least one correct hop, as the first entry
+compared should always be the same
 """
-def naive_compare(as_path1, as_path2):
+def naive_compare_ftb(as_path1, as_path2):
     correct_hops = 0
     incorrect_hops = 0
     max_index = min(len(as_path1),len(as_path2))
-    for i in range(-1, -max_index, -1):
+    mismatch = max(len(as_path2),len(as_path1)) - max_index
+    for i in range(0,max_index - 1):
         if(as_path1[i] == as_path2[i]):
             correct_hops = correct_hops + 1
         else:
             incorrect_hops = incorrect_hops + 1
-    return [correct_hops, incorrect_hops]
+    return [correct_hops, incorrect_hops + mismatch]
 
+"""
+this is a naive approach to comparing AS paths going back of list to front (btf)
+takes in two AS paths as lists, and returns
+the number of correct hops and incorrect hops
+
+back to front means:
+  o starts at the last index and works back to the first index
+
+ex: [0,1,2,3], it would check
+    3, then 2, then 1, then exclude 0
+
+as_path1 -> propagated, as_path2 -> actual
+
+tests:
+[1,2,3],[1,2,3] -> [2, 0]
+[1,2,3,4], [1,2,4] -> [1, 2]
+this should always have at least one correct hop, as the first entry
+compared should match, otherwise there is a problem
+"""
+def naive_compare_btf(as_path1, as_path2):
+    correct_hops = 0
+    incorrect_hops = 0
+    max_index = min(len(as_path1),len(as_path2))
+    mismatch = max(len(as_path2),len(as_path1)) - max_index
+    for i in range(-1, -max_index, -1):
+        if as_path1[i] == as_path2[i]:
+            correct_hops = correct_hops + 1
+        else:
+            incorrect_hops = incorrect_hops + 1
+    return [correct_hops, incorrect_hops + mismatch]
 
 def main():
     """Connects to a SQL database to push a data partition for storage.    
@@ -281,7 +326,7 @@ def main():
         # Get the MRT announcement path
         reported_as_path = readMrtAnnRow(cursor, sys.argv[1], i[0], origin_str)
 
-        hop_results = naive_compare(reported_as_path, result_as_path)
+        hop_results = naive_compare_btf(reported_as_path, result_as_path)
         correct_hops = correct_hops + hop_results[0]
         incorrect_hops = incorrect_hops + hop_results[1]
 
