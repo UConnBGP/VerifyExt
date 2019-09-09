@@ -8,8 +8,8 @@ from configparser import ConfigParser
 from datetime import datetime
 
 LOG_LOC = r"/tmp/"
-TABLE_NAME = r"verify_data_8220"
-MRT_TABLE_NAME = r"verify_ctrl_8220_distinct"
+TABLE_NAME = r"verify_data"
+MRT_TABLE_NAME = r"verify_ctrl_distinct"
 
 def connectToDB():
     """Creates a connection to the SQL database.
@@ -34,31 +34,11 @@ def connectToDB():
     cur = conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor)
     return cur
 
-def readMrtAnnRow(cursor, AS, prefix, origin):
-    """Creates a list from the AS path of the MRT announcement.
-    
-    Returns:
-    as_path_list  AS-PATH accessed from a source of MRT announcements as a list, removing repetitions.
-    """
-    parameters = (prefix, AS)
-    sql_select = ("SELECT * FROM " + MRT_TABLE_NAME       
-                 + " WHERE prefix = (%s)" 
-                 + " AND origin = "+ origin
-                 + " AND as_path[1] = (%s)")
-    # Execute the dynamic query
-    cursor.execute(sql_select, parameters)
-    announcement = cursor.fetchone()
-    as_path_list = []
 
-    for i in announcement[2]:
-        if as_path_list.count(int(i))<1:
-            as_path_list.append(int(i))
-
-    return as_path_list
-
-
-def getPrefixSet(cursor, AS):
+def get_mrt_ann(cursor, AS):
     """Creates a dictionary from the the set of prefix/origins as key-value pairs.
+    Parameters:
+    AS  String of 32-bit integer ASN of target AS
 
     Returns:
     prefix_dict  A dictionary of every prefix-origin pair passing through an AS according to the control set.
@@ -68,234 +48,143 @@ def getPrefixSet(cursor, AS):
                  + " WHERE as_path[1] = (%s)")
     # Execute the dynamic query
     cursor.execute(sql_select, parameters)
-    announcement = cursor.fetchall()
+    announcements = cursor.fetchall()
+    mrt_dict = {}
+    
+    # For each announcemennt
+    for ann in announcements:
+        # If prefix not in the dictionary, add it
+        # This ignores multi-origin prefixes
+        # This ignores multi-AS path prefixes
+        if ann[0] not in mrt_dict:
+            # Create AS path for current prefix
+            as_path = []
+            for asn in ann[2]:
+                # Removes duplicate ASNs
+                if as_path.count(int(asn))<1:
+                    as_path.append(int(asn))
+            mrt_dict[ann[0]]=(as_path, ann[1])
+    return mrt_dict
 
-    prefix_dict = {}
 
-    for i in announcement:
-        if i[0] not in prefix_dict:
-            as_path_list = []
-            for j in i[2]:
-                if as_path_list.count(int(j))<1:
-                    as_path_list.append(int(j))
-            prefix_dict[i[0]]=(as_path_list, i[1])
-    return prefix_dict
-
-
-def getAnn(cursor, AS, prefix, origin):
-    """Fetch a single announcement for a given AS and prefix/origin.
+def get_ext_ann(cursor, prefix, origin):
+    """ Creates a dictionary for all announcements keyed to prefixi/origin.
     Parameters:
-    AS  32-bit integer ASN of target AS
-    prefix  CIDR format ipv4 address for target prefix
-    origin  32-bit integer ASN of target prefix origin
-    
-    Returns:
-    announcement  A 4-element tuple or None if no rows found 
-    """
-
-    parameters = (prefix, )
-    sql_select = ("SELECT * FROM " + TABLE_NAME       
-                 + " WHERE asn = " + AS 
-                 + " AND prefix = (%s)" 
-                 + " AND origin = "+ origin)
-    # Execute the dynamic query
-    cursor.execute(sql_select, parameters)
-    announcement = cursor.fetchone()
-    # Returns tuple or None
-    return announcement
-
-def getExtAnnSet(cursor, prefix, origin):
-    """ Creates a dictionary for all announcements keyed to prefix.
-    
+    prefix  String of CIDR format ipv4 address for target prefix
+    origin  String of 32-bit integer ASN of target prefix origin
+   
     Returns:
     ann_set  A dictionary of prefix origin key-value pairs  
     """
-    # print("fetching announcement set...")
-    parameters = (prefix, )
+    #print("Fetching announcement set for " + str(prefix))
+    parameters = (origin, prefix)
     sql_select = ("SELECT * FROM " + TABLE_NAME
-                 + " WHERE origin = " + origin
+                 + " WHERE origin = (%s)"
                  + " AND prefix = (%s)")
     # Execute the dynamic query
     cursor.execute(sql_select, parameters)
-    announcement = cursor.fetchall()
-
-    ann_set = {announcement[0][0]:announcement[0][3]}
-  
-    for i in range(1, len(announcement)):
-        ann_set[announcement[i][0]]= announcement[i][3]
-
+    anns = cursor.fetchall()
+    ann_sz = len(anns)
     # Returns DICT or None
-    return ann_set
+    if ann_sz != 0:
+        # Create dictionary of {current ASN:received from ASN} pairs
+        ann_set = {anns[0][0]:anns[0][3]}
+        
+        for i in range(1, len(anns)):
+            ann_set[anns[i][0]] = anns[i][3]
+        return ann_set
+    else:
+        return None
 
-def localTraceback(localDict, AS, origin, result_list):
+
+def traceback(ext_dict, AS, origin, result_list):
     """Generates a AS path as a list from the passed dictionary object.
-    
+    Parameters:
+    ext_dict  Dictionary of current ASN, received from ASN pairs
+    AS  32-bit integer ASN of the current AS on path
+    origin  32-bit integer ASN of target prefix origin
+   
     Returns:
     result_list  A list of 32-bit int ASNs along the extrapolated AS path.  
     """
-
-    if AS in localDict:
-        current_as = localDict[AS]
-        current_as_str = str(localDict[AS])
+    AS = int(AS)
+    if AS in ext_dict:
+        current_as = ext_dict[AS]
+        current_as_str = str(current_as)
         origin_str = str(origin)
-        # print("current AS str: "+current_as_str)
         if current_as == origin:
             result_list.append(origin)
             return result_list
         else:
-            result_list.append(current_as)
-            return localTraceback(localDict, current_as, origin, result_list)    
+            result_list.append(int(current_as))
+            return traceback(ext_dict, current_as, origin, result_list)    
     else:
-        return result_list
+        print("AS " + str(AS) + " not in dictionary.")
+        return None
 
-"""
-old path compare function, preserved if we need it
 
-it's a good thing i didn't get rid of this. . .
-
-modified arguments so it is clear which argument
-corresponds to which path
-
-return has been changed to the return we now use for it
-
-takes two different as_paths and compares them, then
-outputs an accuracy estimate as [correct, incorrect]
-
-because the total_hops number is based off the length
-of the propagated path, if it is shorter than the actual it will
-not count against it
-
-like the naive compare, the last index is excluded, though it should
-match anyway because the announcements should have the same origins
-and destinations
-
-rough version finished, going to test now
-[1,2,3,4], [0,1,2,3,4] -> [3, 0]
-[0,1,2,3,4], [1,2,3,4] -> [3, 1]
-[], [1] -> [0, 0]
-"""
-def path_compare(propagated_path, actual_path):
-    total_hops = len(propagated_path)
-    correct_hops = 0
-    if total_hops == 0 or None:
+def path_compare(prop_path, mrt_path):
+    hops = len(prop_path)
+    correct = 0
+    if hops == 0 or None:
         return [0, 0]
-    for i in range(len(propagated_path) - 1):
-        if propagated_path[i] in actual_path:
-            correct_hops = correct_hops + 1
-    return [correct_hops , total_hops - correct_hops - 1]
+    for i in range(hops - 1):
+        if prop_path[i] in mrt_path:
+            correct += 1
+    return [correct-2, hops - correct]
 
 
-"""
-DO NOT USE
-
-takes two different as_paths and compares them, then
-outputs 1 if they are the same, and 0 if they are different
-
-[1,2,3,4], [0,1,2,3,4] -> 0
-[], [1] -> 0
-[1,2,3,4], [1,2,4,3] -> 0
-[1,2,3,4],[1,2,3,4] -> 1
-
-way to use this:
-    keep track of total number we are comparing, and
-    the total correct will be the sum of the function calls
-    
-    conversely, the total number incorrect will be the total
-    minus the number correct
-    
-    from there, you can calculate an estimate of how likely it is
-    to be correct
-"""
-def path_compare_DEPRECATED(as_path1, as_path2):
-    if len(as_path2) != len(as_path1):
-        return 0
-    if len(as_path1) == 0 or None:
-        return 0
-    for i in range(len(as_path1)):
-        if as_path1[i] != as_path2[i]:
-            return 0
-    return 1
-
-
-"""
-this is a naive approach to comparing AS paths going front of list to back (ftb)
-takes in two AS paths as lists, and returns
-the number of correct hops and incorrect hops
-
-as_path1 -> propagated, as_path2 -> actual
-
-front to back means:
-  o starts at the first index and works back to the last index
-
-ex: [0,1,2,3], it would check
-    0, then 1, then 2, then exclude 3
-
-tests:
-[1,2,3],[1,2,3] -> [2, 0]
-[1,2,3,4], [1,2,4] -> [2, 1]
-this should always have at least one correct hop, as the first entry
-compared should always be the same
-"""
-def naive_compare_ftb(as_path1, as_path2):
-    correct_hops = 0
-    incorrect_hops = 0
-    max_index = min(len(as_path1),len(as_path2))
-    mismatch = max(len(as_path2),len(as_path1)) - max_index
-    for i in range(0,max_index - 1):
-        if(as_path1[i] == as_path2[i]):
-            correct_hops = correct_hops + 1
-        else:
-            incorrect_hops = incorrect_hops + 1
-    return [correct_hops, incorrect_hops + mismatch]
-
-"""
-this is a naive approach to comparing AS paths going back of list to front (btf)
-takes in two AS paths as lists, and returns
-the number of correct hops and incorrect hops
-
-back to front means:
-  o starts at the last index and works back to the first index
-
-ex: [0,1,2,3], it would check
-    3, then 2, then 1, then exclude 0
-
-as_path1 -> propagated, as_path2 -> actual
-
-tests:
-[1,2,3],[1,2,3] -> [2, 0]
-[1,2,3,4], [1,2,4] -> [1, 2]
-this should always have at least one correct hop, as the first entry
-compared should match, otherwise there is a problem
-"""
-def naive_compare_btf(as_path1, as_path2):
-    correct_hops = 0
-    incorrect_hops = 0
-    max_index = min(len(as_path1),len(as_path2))
-    mismatch = max(len(as_path2),len(as_path1)) - max_index
+k = [0] * 10
+l = [0] * 10
+def naive_compare_btf(prop_path, mrt_path):
+    correct = 0
+    incorrect = 0
+    max_index = min(len(prop_path), len(mrt_path))
+    mismatch = max(len(prop_path), len(mrt_path)) - max_index
+   
+    # Reverse index to start at end of lists
+    j = 2
     for i in range(-1, -max_index, -1):
-        if as_path1[i] == as_path2[i]:
-            correct_hops = correct_hops + 1
+        if prop_path[i] == mrt_path[i]:
+            if (i < -1 and j == abs(i)):
+                k[j-2] += 1
+                j += 1
+            correct += 1
         else:
-            incorrect_hops = incorrect_hops + 1
-    return [correct_hops, incorrect_hops + mismatch]
+            if (j == abs(i)):
+                l[j-2] += 1
+            incorrect += 1
+    return [correct-1, incorrect + mismatch]
+
 
 def main():
     """Connects to a SQL database to push a data partition for storage.    
     
     Parameters:
     argv[1]  32-bit integer ASN of target AS
-    argv[2]  CIDR format ipv4 address for control prefix
-    argv[3]  32-bit integer ASN of target prefix origin
-    argv[4]  BETA FEATURE how many prefix origin sets we're testing
+    argv[2]  Origin Only Boolean
     """    
 
-    if len(sys.argv) != 5:
-        print("Usage: traceback.py <AS> <prefix> <origin> <rounds>", file=sys.stderr)
+    if len(sys.argv) != 3:
+        print("Usage: traceback.py <AS> <OOBool>", file=sys.stderr)
         sys.exit(-1)
+    
+    # Set table names
+    ctrl_AS = str(sys.argv[1])
+    global TABLE_NAME;
+    global MRT_TABLE_NAME;
+    if (int(sys.argv[2]) == 0):
+        print("Setting MRT verification.")
+        TABLE_NAME = "verify_data_" + ctrl_AS
+        MRT_TABLE_NAME = r"verify_ctrl_" + ctrl_AS + "_distinct"
+    else:
+        print("Setting origin only verification.")
+        TABLE_NAME = "verify_data_" + ctrl_AS + "_oo"
+        MRT_TABLE_NAME = r"verify_ctrl_" + ctrl_AS + "_distinct"
 
     # Logging config 
     logging.basicConfig(level=logging.INFO, filename=LOG_LOC + datetime.now().strftime("%c"))
-    logging.info(datetime.now().strftime("%c") + ": Traceback Start...")
+    logging.info(datetime.now().strftime("%c") + ": Verification Start...")
     
     # Create a cursor for SQL Queries
     cursor = connectToDB();
@@ -305,36 +194,46 @@ def main():
     incorrect_hops=0
 
     # Trace back the AS path for that announcement
-    my_AS = int(sys.argv[1])
-    rounds = int(sys.argv[4])
-
-    # Get the prefix set
-    print("Verifying received announcements...")
-    prefix_set = getPrefixSet(cursor, sys.argv[1])
+    # Get the mrt set
+    print("Getting MRT announcements...")
+    # Dict = {prefix: (as_path, origin)}
+    mrt_set = get_mrt_ann(cursor, sys.argv[1])
     
-    for i in prefix_set:
-        this_prefix = i
-        origin_str = str(prefix_set[i][1])
+    ver_pref = len(mrt_set)
+    print("Performing verification for " + str(ver_pref) + " prefixes")
+    for ann in mrt_set:
+        origin_str = str(mrt_set[ann][1])
         
         # Get the propagted announcements
-        origin_set = getExtAnnSet(cursor, i, origin_str)
+        # Dict = {current ASN: received from ASN}
+        origin_set = get_ext_ann(cursor, ann, origin_str)
+        
+        if origin_set == None:
+            ver_pref -= 1
+            print(str(ann) + " " + str(origin_str) + " is not present in results.")
+            continue;
+        
         # Recreate the extrapolated AS path
-        result_as_path = localTraceback(origin_set, my_AS, prefix_set[i][1], [my_AS])
+        ext_as_path = traceback(origin_set, ctrl_AS, mrt_set[ann][1], [int(ctrl_AS)])
+        
+        # If extrapolated path is complete
+        if (ext_as_path != None):
+            # Get the MRT announcement path
+            reported_as_path = mrt_set[ann][0]
+            # Compare paths
+            hop_results = naive_compare_btf(reported_as_path, ext_as_path)
+            correct_hops += hop_results[0]
+            incorrect_hops += hop_results[1]
+        else:
+            # Incomplete extrapolated path
+            ver_pref -= 1
+            print(str(ann) + " " + str(origin_str) + " does not have complete path.")
 
-        # Get the MRT announcement path
-        reported_as_path = prefix_set[i][0] # this might be faster
-
-        hop_results = naive_compare_btf(reported_as_path, result_as_path)
-        correct_hops = correct_hops + hop_results[0]
-        incorrect_hops = incorrect_hops + hop_results[1]
-
-        rounds = rounds - 1
-        if rounds == 0:
-            break
-    
+    print(k)
+    print(l)
     corr_hops_str = str(correct_hops)
     incorr_hops_str = str(incorrect_hops)
-
+    print("Verifiable prefixes: " + str(ver_pref))
     result_str = "Correct Hops: " + corr_hops_str + " Incorrect Hops: " + incorr_hops_str
     print(result_str)
 

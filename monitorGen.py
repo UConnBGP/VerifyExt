@@ -15,10 +15,10 @@ ripe_collectors = ["rrc01","rrc03","rrc04","rrc05","rrc06","rrc07""rrc10","rrc11
 # Routeview
 routeview_collectors = ["route-views2", "route-views3", "route-views4", "route-views6", "route-views.eqix", "route-views.isc", "route-views.kixp", "route-views.jinx", "route-views.linx", "route-views.telxatl", "route-views.wide", "route-views.sydney", "route-views.saopaulo", "route-views.nwax", "route-views.perth", "route-views.sg", "route-views.sfmix", "route-views.soxrs", "route-views.chicago", "route-views.napafrica", "route-views.flix", "route-views.chile", "route-views.amsix"]
 
-collectors = ripe_collectors + route_collectors
+collectors = ripe_collectors + routeview_collectors
 
 # Friday, June 21, 2019 12:00:00 AM == 1561075200
 MRT_Parser().parse_files(start = 1561075200,
-                         end = 156111840)
+                         end = 156111840,
                          api_param_mods = {"collector": "rrc00",
                                             "types": ['ribs']})
