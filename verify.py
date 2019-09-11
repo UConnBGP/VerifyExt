@@ -123,25 +123,28 @@ def traceback(ext_dict, AS, origin, result_list):
         return None
 
 
-def path_compare(prop_path, mrt_path):
-    hops = len(prop_path)
-    correct = 0
-    if hops == 0 or None:
-        return [0, 0]
-    for i in range(hops - 1):
-        if prop_path[i] in mrt_path:
-            correct += 1
-    return [correct-2, hops - correct]
-
-
+# Globals make you faster, like flame decals
 k = [0] * 10
 l = [0] * 10
 def naive_compare_btf(prop_path, mrt_path):
+    """Simple K compare method, counting correct path hops up to the first mistake.
+    Parameters:
+    prop_path  Propagated path given by Extrapolation results
+    mrt_path  Correct path given by MRT announcement
+   
+    Returns:
+    result_list  A list of correct and incorrect hops.  
+    """
+    # If propagted path is empty
+    if not prop_path:
+        return [0, len(mrt_path)]
+    
     correct = 0
     incorrect = 0
+    # Find bounds
     max_index = min(len(prop_path), len(mrt_path))
     mismatch = max(len(prop_path), len(mrt_path)) - max_index
-   
+    
     # Reverse index to start at end of lists
     j = 2
     for i in range(-1, -max_index, -1):
@@ -154,7 +157,52 @@ def naive_compare_btf(prop_path, mrt_path):
             if (j == abs(i)):
                 l[j-2] += 1
             incorrect += 1
-    return [correct-1, incorrect + mismatch]
+    return [correct - 1, incorrect + mismatch]
+
+
+def call_counter(func):
+    def wrapper(*args, **kwargs):
+        wrapper.calls += 1
+        return func(*args, **kwargs)
+    wrapper.calls = 0
+    wrapper.__name__ = func.__name__
+    return wrapper
+
+def memoize(func):
+    mem = {}
+    def memoizer(*args, **kwargs):
+        # TODO May need a delimiter
+        key = str(args) + str(kwargs)
+        if key not in mem:
+            mem[key] = func(*args, **kwargs)
+        return mem[key]
+    return memoizer
+
+@memoize    
+def levenshtein(mrt_path, prop_path):
+    """Levenshtein compare method, calculating edit distance between two paths.
+    Parameters:
+    mrt_path  Correct path given by MRT announcement
+    prop_path  Propagated path given by Extrapolation results
+   
+    Returns:
+    result  The edit distance between two paths. 
+    """
+    # Check for empty strings
+    if not mrt_path:
+        return len(prop_path)
+    if not prop_path:
+        return len(mrt_path)
+    # If last element matchs
+    if mrt_path[-1] == prop_path[-1]:
+        cost = 0
+    else: # Operation required
+        cost = 1
+    # Recursive call triming path for add, subtract, substitute
+    res = min([levenshtein(mrt_path[:-1], prop_path)+1,
+               levenshtein(mrt_path, prop_path[:-1])+1, 
+               levenshtein(mrt_path[:-1], prop_path[:-1]) + cost])
+    return res
 
 
 def main():
@@ -190,8 +238,11 @@ def main():
     cursor = connectToDB();
 
     # Counter to verify correctness
-    correct_hops=0
-    incorrect_hops=0
+    correct_hops = 0
+    incorrect_hops = 0
+    ver_count = 0
+    levenshtein_d = 0
+    levenshtein_avg = 0
 
     # Trace back the AS path for that announcement
     # Get the mrt set
@@ -221,16 +272,26 @@ def main():
             # Get the MRT announcement path
             reported_as_path = mrt_set[ann][0]
             # Compare paths
-            hop_results = naive_compare_btf(reported_as_path, ext_as_path)
+            hop_results = naive_compare_btf(ext_as_path, reported_as_path)
             correct_hops += hop_results[0]
             incorrect_hops += hop_results[1]
+
+            # Levenshtein compare
+            ver_count += 1
+            cur_distance = levenshtein(reported_as_path, ext_as_path)
+            levenshtein_avg = levenshtein_avg + (cur_distance - levenshtein_avg) / ver_count
+            levenshtein_d += cur_distance
         else:
             # Incomplete extrapolated path
             ver_pref -= 1
             print(str(ann) + " " + str(origin_str) + " does not have complete path.")
-
+    
+    # K is success up to kth hop
     print(k)
+    # L is success until the kth hop
     print(l)
+    print("Total Levenshtein Distance: " + str(levenshtein_d))
+    print("Levenshtein Average: " + str(levenshtein_avg))
     corr_hops_str = str(correct_hops)
     incorr_hops_str = str(incorrect_hops)
     print("Verifiable prefixes: " + str(ver_pref))
