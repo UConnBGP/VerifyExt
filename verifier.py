@@ -5,7 +5,7 @@
 The verifier class generates statistics for the verification of a single Autonomous System(AS).
 """
 
-__version__ = '0.2'
+__version__ = '0.3'
 __author__ = 'James Breslin'
 
 import sys
@@ -14,6 +14,7 @@ import psycopg2.extras
 import shutil
 import os
 import logging
+from os import path
 from configparser import ConfigParser
 from datetime import datetime
 
@@ -39,14 +40,17 @@ class Verifier:
     
     def __init__(self, asn, origin_only):
         # Set dynamic SQL table names
-        self.mrt_table =  r"verify_ctrl_" + str(asn)
-        
-        if (int(origin_only) == 0):
-            print("Setting full path verification.")
-            self.ext_table = r"verify_data_" + str(asn)
+        self.ctrl_AS = asn
+        self.oo = int(origin_only)
+        self.mrt_table =  r"verify_ctrl_" + asn
+        if (self.oo == 0):
+            print(datetime.now().strftime("%c") + ": Performing verification for AS" + asn)
+            print(datetime.now().strftime("%c") + ": Setting full path verification.")
+            self.ext_table = r"verify_data_" + asn
         else:
-            print("Setting origin only verification.")
-            self.ext_table = "verify_data_" + str(asn) + "_oo"
+            print(datetime.now().strftime("%c") + ": Performing origin verification for AS" + asn)
+            print(datetime.now().strftime("%c") + ": Setting origin only verification.")
+            self.ext_table = "verify_data_" + asn + "_oo"
 
     def connectToDB(self):
         """Creates a connection to the SQL database.
@@ -118,7 +122,7 @@ class Verifier:
         if anns_sz != 0:
             # Create dictionary of {current ASN + prefix : (origin, received from ASN)} pairs
             for i in range(anns_sz):
-                key = str(anns[i][0]) + str(anns[i][1])
+                key = str(anns[i][0]) + "-" + str(anns[i][1])
                 ext_dict[key] = (anns[i][2], anns[i][3])
             return ext_dict
         else:
@@ -134,7 +138,7 @@ class Verifier:
         Returns:
         result_list  A list of 32-bit int ASNs along the extrapolated AS path.  
         """
-        cur_key = str(AS) + str(prefix)
+        cur_key = str(AS) + "-" + str(prefix)
         if cur_key in ext_dict:
             # Origin/received from AS pair
             pair = ext_dict[cur_key]
@@ -147,10 +151,10 @@ class Verifier:
                 return result_list
             else:
                 result_list.append(int(recv))
-                return traceback(ext_dict, recv, prefix, origin, result_list)    
+                return self.traceback(ext_dict, recv, prefix, origin, result_list)    
         else:
             self.verifiable -= 1
-            print("Traceback Error: " + cur_key + " not in results.")
+            print(datetime.now().strftime("%c") + ": Traceback Error: " + cur_key + " not in results.")
             return None
 
     def naive_compare_btf(self, prop_path, mrt_path):
@@ -225,13 +229,118 @@ class Verifier:
         else: # Operation required
             cost = 1
         # Recursive call triming path for add, subtract, substitute
-        res = min([levenshtein(mrt_path[:-1], prop_path)+1,
-                   levenshtein(mrt_path, prop_path[:-1])+1, 
-                   levenshtein(mrt_path[:-1], prop_path[:-1]) + cost])
+        res = min([Verifier.levenshtein(mrt_path[:-1], prop_path)+1,
+                   Verifier.levenshtein(mrt_path, prop_path[:-1])+1, 
+                   Verifier.levenshtein(mrt_path[:-1], prop_path[:-1]) + cost])
         return res
 
-    def run():
-        pass
+    def run(self):
+        # Create a cursor for SQL Queries
+        cursor = self.connectToDB();
+       
+        # Trace back the AS path for that announcement
+        print(datetime.now().strftime("%c") + ": Getting MRT announcements...")
+        # Dict = {prefix: (as_path, origin)}
+        mrt_set = self.get_mrt_anns(cursor, self.ctrl_AS)
+        
+        print(datetime.now().strftime("%c") + ": Getting extrapolated announcements...")
+        # Dict = {current ASN + prefix: (origin, received from ASN)}
+        ext_set = self.get_ext_anns(cursor)
+    
+        # Set total vs. verifiable prefix count
+        self.prefixes = len(mrt_set)
+        self.verifiable = len(mrt_set)
+        
+        # For each prefix in the ASes MRT announcements
+        print(datetime.now().strftime("%c") + ": Performing verification for " + str(self.prefixes) + " prefixes")
+        for prefix in mrt_set:
+            mrt_pair = mrt_set[prefix]
+            mrt_path = mrt_pair[0]
+            mrt_origin = mrt_pair[1]
+            
+            cur_key = str(self.ctrl_AS) + "-" + str(prefix)
+            
+            # Get the MRT announcement path
+            reported_as_path = mrt_set[prefix][0]
+
+            # If AS has no extrapolated announcement for current prefix
+            if cur_key not in ext_set:
+                # Add length of real path to mistakes
+                self.incorrect_hops += len(reported_as_path)
+                # Immediate failure for K compare
+                self.l[0] += 1
+                # Levenshtein distance is length of real path
+                cur_distance= len(reported_as_path)
+                self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
+                self.levenshtein_d += cur_distance
+                #print("Prefix Error: " + cur_key + " is not in results.")
+                continue;
+            
+            # If MRT origin doesn't match extrapolated origin
+            ext_origin = int(ext_set[cur_key][0])
+            if ext_origin != mrt_origin:
+                # Add length of real path to mistakes
+                self.incorrect_hops += len(reported_as_path)
+                # Immediate failure for K compare
+                self.l[0] += 1
+                # Levenshtein distance is length of real path
+                cur_distance= len(reported_as_path)
+                self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
+                self.levenshtein_d += cur_distance
+                #print("Origin Error: " + cur_key + " is not in results.")
+                continue;
+
+            # Recreate the extrapolated AS path
+            ext_as_path = self.traceback(ext_set, self.ctrl_AS, prefix, mrt_origin, [int(self.ctrl_AS)])
+            
+            # If extrapolated path is complete
+            if (ext_as_path != None):
+                # Compare paths
+                hop_results = self.naive_compare_btf(ext_as_path, reported_as_path)
+                self.correct_hops += hop_results[0]
+                self.incorrect_hops += hop_results[1]
+
+                # Levenshtein compare
+                self.ver_count += 1
+                cur_distance = Verifier.levenshtein(reported_as_path, ext_as_path)
+                self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
+                self.levenshtein_d += cur_distance
+        
+    def output(self):
+        # TODO Make multiprocess safe
+        fn = "batch_a.csv"
+        print(datetime.now().strftime("%c") + ": Writing output to " + fn)
+        if (path.exists(fn)):
+            f = open(fn, "a+")
+        else:
+            f = open(fn, "w+")
+        
+        if self.oo == 0:
+            f.write("%s\n" % self.ctrl_AS)
+        else:
+            f.write("%s-OO\n" % self.ctrl_AS)
+        f.write("%d,%d\n" % (self.prefixes, self.verifiable))
+        
+        # K Compare Correct
+        str_l = []
+        for x in self.k:
+            str_l.append(str(x))
+        f.write(','.join(str_l)) 
+        f.write("\n")
+        
+        # K Compare Incorrect
+        str_l = []
+        for x in self.l:
+            str_l.append(str(x))
+        f.write(','.join(str_l))
+        f.write("\n")
+        
+        # Levenshtein Values
+        f.write("%f\n" % self.levenshtein_avg)
+        f.write("%d\n" % self.levenshtein_d)
+        f.write("%d,%d\n\n" % (self.correct_hops, self.incorrect_hops))
+        f.close()
+        print("\n")
 
 
 def main():
@@ -252,8 +361,6 @@ def main():
     
     # Create a cursor for SQL Queries
     cursor = v.connectToDB();
-
-    # Counter to verify correctness
    
     # Trace back the AS path for that announcement
     print("Getting MRT announcements...")
@@ -274,7 +381,7 @@ def main():
         mrt_path = mrt_pair[0]
         mrt_origin = mrt_pair[1]
         
-        cur_key = str(ctrl_AS) + str(prefix)
+        cur_key = str(ctrl_AS) + "-" + str(prefix)
         
         # If AS has no extrapolated announcement for current prefix
         if cur_key not in ext_set:
@@ -282,8 +389,12 @@ def main():
             print("Prefix Error: " + cur_key + " is not in results.")
             continue;       
         
-        # If MRT origin doesn't matche extrapolated origin
-        ext_origin = ext_set[cur_key][1]
+        # If MRT origin doesn't match extrapolated origin
+        # TODO REPLACE: Need to add to mistakes count for mis-origin extrapolation
+        ext_origin = int(ext_set[cur_key][0])
+        #print(type(ext_origin))
+        #print(type(mrt_origin))
+        #print(str(ext_origin) + " != " + str(mrt_origin))
         if ext_origin != mrt_origin:
             v.verifiable -= 1
             print("Origin Error: " + cur_key + " is not in results.")
@@ -295,7 +406,7 @@ def main():
         # If extrapolated path is complete
         if (ext_as_path != None):
             # Get the MRT announcement path
-            reported_as_path = mrt_set[ann][0]
+            reported_as_path = mrt_set[prefix][0]
             # Compare paths
             hop_results = v.naive_compare_btf(ext_as_path, reported_as_path)
             v.correct_hops += hop_results[0]
@@ -303,8 +414,8 @@ def main():
 
             # Levenshtein compare
             v.ver_count += 1
-            cur_distance = levenshtein(reported_as_path, ext_as_path)
-            v.levenshtein_avg = levenshtein_avg + (cur_distance - levenshtein_avg) / ver_count
+            cur_distance = Verifier.levenshtein(reported_as_path, ext_as_path)
+            v.levenshtein_avg = v.levenshtein_avg + (cur_distance - v.levenshtein_avg) / v.ver_count
             v.levenshtein_d += cur_distance
     
     # K is success up to kth hop
