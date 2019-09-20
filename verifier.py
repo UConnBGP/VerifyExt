@@ -75,7 +75,7 @@ class Verifier:
         except:
             print(datetime.now().strftime("%c") + ": Login failed.")
         # Create the cursor
-        cur = conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor)
+        cur = conn.cursor()
         return cur
 
     def get_mrt_anns(self, cursor, AS):
@@ -99,14 +99,15 @@ class Verifier:
             # If prefix not in the dictionary, add it
             # This ignores multi-origin prefixes
             # This ignores multi-AS path prefixes
-            if ann[0] not in mrt_dict:
+            prefix = ann[0]
+            if prefix not in mrt_dict:
                 # Create AS path for current prefix
                 as_path = []
                 for asn in ann[2]:
                     # Removes duplicate ASNs
                     if as_path.count(int(asn))<1:
                         as_path.append(int(asn))
-                mrt_dict[ann[0]]=(as_path, ann[1])
+                mrt_dict[prefix]=(as_path, ann[1])
         return mrt_dict
 
     def get_ext_anns(self, cursor):
@@ -344,6 +345,33 @@ class Verifier:
         f.write("%d,%d\n\n" % (self.correct_hops, self.incorrect_hops))
         f.close()
         print("\n")
+    
+    def output_cl(self):
+        print(datetime.now().strftime("%c") + ": Writing output to " + fn)
+        if self.oo == 0:
+            print("%s\n" % self.ctrl_AS)
+        else:
+            print("%s-OO\n" % self.ctrl_AS)
+        print("%d,%d\n" % (self.prefixes, self.verifiable))
+        
+        # K Compare Correct
+        str_l = []
+        for x in self.k:
+            str_l.append(str(x))
+        print(','.join(str_l)) 
+        print("\n")
+        
+        # K Compare Incorrect
+        str_l = []
+        for x in self.l:
+            str_l.append(str(x))
+        print(','.join(str_l))
+        print("\n")
+        
+        # Levenshtein Values
+        print("%f\n" % self.levenshtein_avg)
+        print("%d\n" % self.levenshtein_d)
+        print("%d,%d\n\n" % (self.correct_hops, self.incorrect_hops))
 
 
 def main():
@@ -361,76 +389,8 @@ def main():
     # Set table names
     ctrl_AS = str(sys.argv[1])
     v = Verifier(ctrl_AS, sys.argv[2])
+    v.run()
+    v.output_cl()
     
-    # Create a cursor for SQL Queries
-    cursor = v.connectToDB();
-   
-    # Trace back the AS path for that announcement
-    print("Getting MRT announcements...")
-    # Dict = {prefix: (as_path, origin)}
-    mrt_set = v.get_mrt_anns(cursor, sys.argv[1])
-    
-    print("Getting extrapolated announcements...")
-    # Dict = {current ASN + prefix: (origin, received from ASN)}
-    ext_set = v.get_ext_anns(cursor)
-
-    v.prefixes = len(mrt_set)
-    v.verifiable = len(mrt_set)
-    
-    # For each prefix in the ASes MRT announcements
-    print("Performing verification for " + str(v.prefixes) + " prefixes")
-    for prefix in mrt_set:
-        mrt_pair = mrt_set[prefix]
-        mrt_path = mrt_pair[0]
-        mrt_origin = mrt_pair[1]
-        
-        cur_key = str(ctrl_AS) + "-" + str(prefix)
-        
-        # If AS has no extrapolated announcement for current prefix
-        if cur_key not in ext_set:
-            v.verifiable -= 1
-            print("Prefix Error: " + cur_key + " is not in results.")
-            continue;       
-        
-        # If MRT origin doesn't match extrapolated origin
-        # TODO REPLACE: Need to add to mistakes count for mis-origin extrapolation
-        ext_origin = int(ext_set[cur_key][0])
-        #print(type(ext_origin))
-        #print(type(mrt_origin))
-        #print(str(ext_origin) + " != " + str(mrt_origin))
-        if ext_origin != mrt_origin:
-            v.verifiable -= 1
-            print("Origin Error: " + cur_key + " is not in results.")
-            continue;
-
-        # Recreate the extrapolated AS path
-        ext_as_path = v.traceback(ext_set, ctrl_AS, prefix, mrt_origin, [int(ctrl_AS)])
-        
-        # If extrapolated path is complete
-        if (ext_as_path != None):
-            # Get the MRT announcement path
-            reported_as_path = mrt_set[prefix][0]
-            # Compare paths
-            hop_results = v.naive_compare_btf(ext_as_path, reported_as_path)
-            v.correct_hops += hop_results[0]
-            v.incorrect_hops += hop_results[1]
-
-            # Levenshtein compare
-            v.ver_count += 1
-            cur_distance = Verifier.levenshtein(reported_as_path, ext_as_path)
-            v.levenshtein_avg = v.levenshtein_avg + (cur_distance - v.levenshtein_avg) / v.ver_count
-            v.levenshtein_d += cur_distance
-    
-    # K is success up to kth hop
-    print(v.k)
-    # L is success until the kth hop
-    print(v.l)
-    print("Total Levenshtein Distance: " + str(v.levenshtein_d))
-    print("Levenshtein Average: " + str(v.levenshtein_avg))
-    print("Verifiable prefixes: " + str(v.verifiable))
-    result_str = "Correct Hops: " + str(v.correct_hops) + " Incorrect Hops: " + str(v.incorrect_hops)
-    print(result_str)
-
-
 if __name__ == "__main__":
     main()
