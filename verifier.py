@@ -22,26 +22,12 @@ CONFIG_LOC = r"/etc/bgp/bgp.conf"
 
 class Verifier:
     """This class performs verification for a single AS."""
-    # Number of prefixes in MRT and number verifiable
-    prefixes = 0
-    verifiable = 0
-    # Records success up to the Kth hop
-    k = [0] * 10
-    # Records failure at the Kth hop
-    l = [0] * 10
-    # Records for naive compare 
-    correct_hops = 0
-    incorrect_hops = 0
-    # Verified prefixes for AVG. calc 
-    ver_count = 0
-    # Records for Levenshtein compare
-    levenshtein_d = 0
-    levenshtein_avg = 0
     
     def __init__(self, asn, origin_only):
-        # Set dynamic SQL table names
         self.ctrl_AS = asn
         self.oo = int(origin_only)
+        
+        # Set dynamic SQL table names
         self.mrt_table =  r"verify_ctrl_" + asn
         if (self.oo == 0):
             print(datetime.now().strftime("%c") + ": Performing verification for AS" + asn)
@@ -51,6 +37,23 @@ class Verifier:
             print(datetime.now().strftime("%c") + ": Performing origin verification for AS" + asn)
             print(datetime.now().strftime("%c") + ": Setting origin only verification.")
             self.ext_table = "verify_data_" + asn + "_oo"
+        
+        # Number of prefixes in MRT and number verifiable
+        self.prefixes = 0
+        self.verifiable = 0
+        # Records success up to the Kth hop
+        self.k = [0] * 10
+        # Records failure at the Kth hop
+        self.l = [0] * 10
+        # Records for naive compare 
+        self.correct_hops = 0
+        self.incorrect_hops = 0
+        # Verified prefixes for AVG. calc 
+        self.ver_count = 0
+        # Records for Levenshtein compare
+        self.levenshtein_d = 0
+        self.levenshtein_avg = 0
+
 
     def connectToDB(self):
         """Creates a connection to the SQL database.
@@ -121,9 +124,9 @@ class Verifier:
         ext_dict = {}
         if anns_sz != 0:
             # Create dictionary of {current ASN + prefix : (origin, received from ASN)} pairs
-            for i in range(anns_sz):
-                key = str(anns[i][0]) + "-" + str(anns[i][1])
-                ext_dict[key] = (anns[i][2], anns[i][3])
+            for ann in anns:
+                key = str(ann[0]) + "-" + str(ann[1])
+                ext_dict[key] = (ann[2], ann[3])
             return ext_dict
         else:
             return None
