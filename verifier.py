@@ -28,19 +28,24 @@ class Verifier:
         self.oo = int(origin_only)
         
         # Set dynamic SQL table names
-        self.mrt_table =  r"verify_ctrl_" + asn
+        self.mrt_table =  r"verify_ctrl_" + str(asn)
         if (self.oo == 0):
-            print(datetime.now().strftime("%c") + ": Performing verification for AS" + asn)
+            print(datetime.now().strftime("%c") + ": Performing verification for AS" + str(asn))
             print(datetime.now().strftime("%c") + ": Setting full path verification.")
-            self.ext_table = r"verify_data_" + asn
+            self.ext_table = r"verify_data_" + str(asn)
         else:
-            print(datetime.now().strftime("%c") + ": Performing origin verification for AS" + asn)
+            print(datetime.now().strftime("%c") + ": Performing origin verification for AS" + str(asn))
             print(datetime.now().strftime("%c") + ": Setting origin only verification.")
-            self.ext_table = "verify_data_" + asn + "_oo"
+            self.ext_table = "verify_data_" + str(asn) + "_oo"
         
         # Number of prefixes in MRT and number verifiable
         self.prefixes = 0
         self.verifiable = 0
+        # General path stats
+        self.mrt_avg_len = 0
+        self.mrt_max_len = 0
+        self.ext_avg_len = 0
+        self.ext_max_len = 0
         # Records success up to the Kth hop
         self.k = [0] * 10
         # Records failure at the Kth hop
@@ -87,8 +92,7 @@ class Verifier:
         prefix_dict  A dictionary of every prefix-origin pair passing through an AS according to the control set.
         """
         parameters=(AS,)
-        sql_select = ("SELECT * FROM " + self.mrt_table
-                     + " WHERE as_path[1] = (%s)")
+        sql_select = ("SELECT * FROM " + self.mrt_table)
         # Execute the dynamic query
         cursor.execute(sql_select, parameters)
         announcements = cursor.fetchall()
@@ -124,10 +128,10 @@ class Verifier:
         # Returns DICT or None
         ext_dict = {}
         if anns_sz != 0:
-            # Create dictionary of {current ASN + prefix : (origin, received from ASN)} pairs
+            # Create dictionary of {current ASN + prefix + origin: received from ASN} pairs
             for ann in anns:
-                key = str(ann[0]) + "-" + str(ann[1])
-                ext_dict[key] = (ann[2], ann[3])
+                key = str(ann[0]) + str(ann[1] + str(ann[2]))
+                ext_dict[key] = (ann[3])
             return ext_dict
         else:
             return None
@@ -142,12 +146,10 @@ class Verifier:
         Returns:
         result_list  A list of 32-bit int ASNs along the extrapolated AS path.  
         """
-        cur_key = str(AS) + "-" + str(prefix)
+        cur_key = str(AS) + str(prefix) + str(origin)
         if cur_key in ext_dict:
             # Origin/received from AS pair
-            pair = ext_dict[cur_key]
-            origin = pair[0]
-            recv = pair[1]
+            recv = ext_dict[cur_key]
             
             # End of path
             if recv == origin:
@@ -262,7 +264,7 @@ class Verifier:
             mrt_path = mrt_pair[0]
             mrt_origin = mrt_pair[1]
             
-            cur_key = str(self.ctrl_AS) + "-" + str(prefix)
+            cur_key = str(self.ctrl_AS) + str(prefix) + str(mrt_origin)
             
             # Get the MRT announcement path
             reported_as_path = mrt_set[prefix][0]
@@ -279,7 +281,7 @@ class Verifier:
                 self.levenshtein_d += cur_distance
                 #print("Prefix Error: " + cur_key + " is not in results.")
                 continue;
-            
+            """
             # If MRT origin doesn't match extrapolated origin
             ext_origin = int(ext_set[cur_key][0])
             if ext_origin != mrt_origin:
@@ -293,6 +295,7 @@ class Verifier:
                 self.levenshtein_d += cur_distance
                 #print("Origin Error: " + cur_key + " is not in results.")
                 continue;
+            """
 
             # Recreate the extrapolated AS path
             ext_as_path = self.traceback(ext_set, self.ctrl_AS, prefix, mrt_origin, [int(self.ctrl_AS)])
@@ -347,7 +350,6 @@ class Verifier:
         print("\n")
     
     def output_cl(self):
-        print(datetime.now().strftime("%c") + ": Writing output to " + fn)
         if self.oo == 0:
             print("%s\n" % self.ctrl_AS)
         else:
