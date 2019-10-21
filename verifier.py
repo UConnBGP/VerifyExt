@@ -5,7 +5,7 @@
 The verifier class generates statistics for the verification of a single Autonomous System(AS).
 """
 
-__version__ = '0.4'
+__version__ = '0.5'
 __author__ = 'James Breslin'
 
 import sys
@@ -70,12 +70,13 @@ class Verifier:
         self.levenshtein_d = 0
         self.levenshtein_avg = 0
         # Failure Classification
-        self.pref_orig_f = 0
+        self.pref_f = 0
+        self.orig_f = 0
         self.traceback_f = 0
         self.compare_f = 0
 
 
-    def connectToDB(self):
+    def connect_to_db(self):
         """Creates a connection to the SQL database.
         
         Returns:
@@ -116,20 +117,47 @@ class Verifier:
         # For each announcemennt
         for ann in announcements:
             # If prefix not in the dictionary, add it
-            # This ignores multi-origin prefixes
-            # This ignores multi-AS path prefixes
             prefix = ann[1]
             if prefix not in mrt_dict:
                 # Create AS path for current prefix
                 as_path = []
                 for asn in ann[3]:
                     # Removes duplicate ASNs
-                    if as_path.count(int(asn))<1:
+                    if asn not in as_path:
                         as_path.append(int(asn))
                 mrt_dict[prefix]=(as_path, ann[2])
         return mrt_dict
+ 
+    def get_fp_anns(self, cursor):
+        """Creates a dictionary from the the set of prefix/origins as key-value pairs.
+        Parameters:
+        AS  String of 32-bit integer ASN of target AS
 
-    def get_ext_anns(self, cursor):
+        Returns:
+        prefix_dict  A dictionary of every prefix-origin pair passing through an AS according to the control set.
+        """
+        sql_select = ("SELECT * FROM " + self.ext_table)
+        # Execute the dynamic query
+        cursor.execute(sql_select)
+        announcements = cursor.fetchall()
+        ext_dict = {}
+        
+        # For each announcemennt
+        for ann in announcements:
+            # If prefix not in the dictionary, add it
+            prefix = ann[1]
+            if prefix not in ext_dict:
+                # Create AS path for current prefix
+                # This does not handle loops 
+                as_path = []
+                for asn in ann[3]:
+                    # Removes duplicate ASNs
+                    if asn not in as_path:
+                        as_path.append(int(asn))
+                ext_dict[prefix]=(as_path, ann[2], ann[4])
+        return ext_dict
+       
+    def get_tb_anns(self, cursor):
         """ Creates a dictionary for all announcements keyed to AS/prefix.
        
         Returns:
@@ -211,41 +239,8 @@ class Verifier:
             self.verifiable -= 1
             print(datetime.now().strftime("%c") + ": Traceback Error: " + cur_key + " not in results.")
             return None
-
-    def naive_compare_btf(self, prop_path, mrt_path):
-        """Simple K compare method, counting correct path hops up to the first mistake.
-        Parameters:
-        prop_path  Propagated path given by Extrapolation results
-        mrt_path  Correct path given by MRT announcement
-       
-        Returns:
-        result_list  A list of correct and incorrect hops.  
-        """
-        # If propagted path is empty
-        if not prop_path:
-            return [0, len(mrt_path)]
-        
-        correct = 0
-        incorrect = 0
-        # Find bounds
-        max_index = min(len(prop_path), len(mrt_path))
-        mismatch = max(len(prop_path), len(mrt_path)) - max_index
-        
-        # Reverse index to start at end of lists
-        j = 2
-        for i in range(-1, -max_index, -1):
-            if prop_path[i] == mrt_path[i]:
-                if (i < -1 and j == abs(i)):
-                    self.k[j-2] += 1
-                    j += 1
-                correct += 1
-            else:
-                if (j == abs(i)):
-                    self.l[j-2] += 1
-                incorrect += 1
-        return [correct - 1, incorrect + mismatch]
     
-    def k_compare(self, prop_path, mrt_path):
+    def k_compare(self, mrt_path, prop_path):
         """Simple K compare method, counting correct path hops up to the first mistake.
         Parameters:
         prop_path  Propagated path given by Extrapolation results
@@ -256,14 +251,7 @@ class Verifier:
         """
         # If propagted path is empty
         if not prop_path:
-            print("No path, k compare gets nothing!")
             self.l[0] += 1
-            return [0, len(mrt_path)]
-        
-        correct = 0
-        incorrect = 0
-        # Find bounds
-        max_index = min(len(prop_path), len(mrt_path))
         
         # Reverse index to start at end of lists
         for i, (ext, mrt) in enumerate(zip(mrt_path, prop_path)):
@@ -284,38 +272,11 @@ class Verifier:
     def memoize(func):
         mem = {}
         def memoizer(*args, **kwargs):
-            # TODO May need a delimiter
             key = str(args) + str(kwargs)
             if key not in mem:
                 mem[key] = func(*args, **kwargs)
             return mem[key]
         return memoizer
-    
-    @memoize    
-    def levenshtein(mrt_path, prop_path):
-        """Levenshtein compare method, calculating edit distance between two paths.
-        Parameters:
-        mrt_path  Correct path given by MRT announcement
-        prop_path  Propagated path given by Extrapolation results
-       
-        Returns:
-        result  The edit distance between two paths. 
-        """
-        # Check for empty strings
-        if not mrt_path:
-            return len(prop_path)
-        if not prop_path:
-            return len(mrt_path)
-        # If last element matchs
-        if mrt_path[-1] == prop_path[-1]:
-            cost = 0
-        else: # Operation required
-            cost = 1
-        # Recursive call triming path for add, subtract, substitute
-        res = min([Verifier.levenshtein(mrt_path[:-1], prop_path)+1,
-                   Verifier.levenshtein(mrt_path, prop_path[:-1])+1, 
-                   Verifier.levenshtein(mrt_path[:-1], prop_path[:-1]) + cost])
-        return res
     
     @memoize    
     def levenshtein_opt(mrt_path, prop_path):
@@ -357,16 +318,19 @@ class Verifier:
     def run(self):
         # Build the MRT control data set
         print(datetime.now().strftime("%c") + ": Getting MRT announcements...")
-        # Dict = {prefix: (as_path, origin)}
-        cursor = self.connectToDB();
+        
+	# Dict = {prefix: (as_path, origin)}
+        cursor = self.connect_to_db();
         mrt_set = self.get_mrt_anns(cursor, self.ctrl_AS)
         cursor.close()
         
         # Build the Ext data set for comparison
         print(datetime.now().strftime("%c") + ": Getting extrapolated announcements...")
         # Dict = {current ASN + prefix: (origin, received from ASN)}
-        cursor = self.connectToDB();
-        ext_set = self.get_ext_anns(cursor)
+        cursor = self.connect_to_db();
+        ext_set = self.get_fp_anns(cursor)
+        
+        # Cleanup
         cursor.close()
         cursor = None
         gc.collect()
@@ -380,54 +344,65 @@ class Verifier:
         for prefix in mrt_set:
             mrt_pair = mrt_set[prefix]
             mrt_path = mrt_pair[0]
+            mrt_l = len(mrt_path)
             mrt_origin = mrt_pair[1]
-            
-            cur_key = str(self.ctrl_AS) + str(prefix) + str(mrt_origin)
-
-            # Get the MRT announcement path
-            reported_as_path = mrt_set[prefix][0]
-            reported_as_path.reverse()
 
             # Update MRT length stats
             self.cur_count += 1
-            mrt_l = len(reported_as_path)
             if mrt_l > self.mrt_max_len:
                 self.mrt_max_len = mrt_l
             #TODO write avg func
             self.mrt_avg_len = self.mrt_avg_len + (mrt_l - self.mrt_avg_len) / self.cur_count
 
-            # If AS has no extrapolated announcement for current prefix/origin
-            if cur_key not in ext_set:
+            # If AS has no extrapolated announcement for current prefix
+            if prefix not in ext_set:
                 # Classify the failure
-                self.pref_orig_f += 1
+                self.pref_f += 1
                 # Verifiable failer
                 self.ver_count += 1
                 # Immediate failure for K compare
                 self.l[0] += 1
                 # Levenshtein distance is length of real path
-                cur_distance= len(reported_as_path)
+                cur_distance= len(mrt_path)
+                self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
+                self.levenshtein_d += cur_distance
+                continue;
+            
+            ext_triple = ext_set[prefix]
+            ext_path = ext_triple[0]
+            ext_l = len(ext_path)
+            ext_origin = ext_triple[1]
+            ext_inference_l = ext_triple[2]
+
+            # If AS has no extrapolated announcement for current origin
+            if mrt_origin != ext_origin:
+                # Classify the failure
+                self.orig_f += 1
+                # Verifiable failer
+                self.ver_count += 1
+                # Immediate failure for K compare
+                self.l[0] += 1
+                # Levenshtein distance is length of real path
+                cur_distance= len(mrt_path)
                 self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
                 self.levenshtein_d += cur_distance
                 continue;
 
-            # Recreate the extrapolated AS path
-            ext_as_path = self.traceback(ext_set, self.ctrl_AS, prefix, mrt_origin, [int(self.ctrl_AS)])
-            
             # If extrapolated path is complete
-            if (ext_as_path != None):
+            if (ext_path != None):
                 # Update Ext length stats
-                ext_as_path.reverse()
                 self.ver_count += 1
-                ext_l = len(ext_as_path)
-                if mrt_l > self.ext_max_len:
+                if ext_l > self.ext_max_len:
                     self.ext_max_len = ext_l
                 self.ext_avg_len = self.ext_avg_len + (ext_l - self.ext_avg_len) / self.cur_count
 
                 # Compare paths
-                self.k_compare(ext_as_path, reported_as_path)
+                mrt_path.reverse()
+                ext_path.reverse()
+                self.k_compare(mrt_path, ext_path)
 
                 # Levenshtein compare
-                cur_distance = Verifier.levenshtein_opt(reported_as_path, ext_as_path)
+                cur_distance = Verifier.levenshtein_opt(mrt_path, ext_path)
                 self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
                 self.levenshtein_d += cur_distance
                 
@@ -441,9 +416,15 @@ class Verifier:
     def output(self):
         """Outputs stats for this AS to a .csv file."""
         # TODO Make multiprocess safe
-        fn = "verified.csv"
+        if (self.oo == 0):
+            fn = "results/full_verified.csv"
+        elif (self.oo == 1):
+            fn = "results/origin_verified.csv"
+        else:
+            fn = "results/no_prop_verified.csv"
+
         print(datetime.now().strftime("%c") + ": Writing output to " + fn)
-        # TODO Try - except here
+        
         if (path.exists(fn)):
             f = open(fn, "a+")
         else:
@@ -476,45 +457,43 @@ class Verifier:
         f.write("\n")
         
         # Failure classification
-        f.write("%d\n" % self.pref_orig_f)
+        f.write("%d\n" % self.pref_f)
+        f.write("%d\n" % self.orig_f)
         f.write("%d\n" % self.traceback_f)
         f.write("%d\n" % self.compare_f)
 
         # Levenshtein Values
         f.write("%f\n" % self.levenshtein_avg)
         f.close()
-        print("\n")
     
     def output_cli(self):
         """Outputs stats for this AS to the CLI."""
         if self.oo == 0:
-            print("%s\n" % self.ctrl_AS)
+            print("%s" % self.ctrl_AS)
         else:
-            print("%s-OO\n" % self.ctrl_AS)
-        print("%d,%d\n" % (self.prefixes, self.verifiable))
+            print("%s-OO" % self.ctrl_AS)
+        print("%d,%d" % (self.prefixes, self.verifiable))
        
-        print("%f\n" % self.mrt_avg_len)
-        print("%d\n" % self.mrt_max_len)
-        print("%f\n" % self.ext_avg_len)
-        print("%d\n" % self.ext_max_len)
+        print("%f" % self.mrt_avg_len)
+        print("%d" % self.mrt_max_len)
+        print("%f" % self.ext_avg_len)
+        print("%d" % self.ext_max_len)
 
         # K Compare Correct
         str_l = []
         for x in self.k:
             str_l.append(str(x))
         print(','.join(str_l)) 
-        print("\n")
         
         # K Compare Incorrect
         str_l = []
         for x in self.l:
             str_l.append(str(x))
         print(','.join(str_l))
-        print("\n")
         
         # Levenshtein Values
-        print("%f\n" % self.levenshtein_avg)
-        print("%d\n" % self.levenshtein_d)
+        print("%f" % self.levenshtein_avg)
+        print("%d" % self.levenshtein_d)
 
 
 def main():
