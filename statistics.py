@@ -12,8 +12,8 @@ import sys
 import shutil
 import csv
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
+#import matplotlib
+#matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import scipy.stats as sts
 from os import path
@@ -129,17 +129,17 @@ def load_data(trial, fn):
             s.num_to_method(line_n%11, trial, row)
             line_n += 1
 
-def plot_ld(f, oo, np):
-    N = len(data)
+def plot_ld(full, origin_o, no_prop):
+    N = full.size
     ind = np.arange(N)    # the x locations for the groups
 
-    p1 = plt.scatter(f, ind, label="Full")
-    p1 = plt.scatter(oo, ind, label="Origin Only")
-    p1 = plt.scatter(np, ind, label="MRT No Propagation")
+    p1 = plt.scatter(ind, full, label="Full")
+    p2 = plt.scatter(ind, origin_o, label="Origin Only")
+    p3 = plt.scatter(ind, no_prop, label="MRT No Propagation")
 
-    plt.ylabel('32 Collectors')
+    plt.xlabel('%d Collectors' % N)
     plt.title('Levenshtein Distance')
-    plt.legend(()
+    plt.legend()
 
     plt.show()
 
