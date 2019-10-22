@@ -67,7 +67,7 @@ class Verifier:
         # Verified prefixes for AVG. calc 
         self.ver_count = 0
         # Records for Levenshtein compare
-        self.levenshtein_d = 0
+        self.levenshtein_d = []
         self.levenshtein_avg = 0
         # Failure Classification
         self.pref_f = 0
@@ -365,7 +365,7 @@ class Verifier:
                 # Levenshtein distance is length of real path
                 cur_distance= len(mrt_path)
                 self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
-                self.levenshtein_d += cur_distance
+                self.levenshtein_d.append(cur_distance)
                 continue;
             
             ext_triple = ext_set[prefix]
@@ -385,7 +385,7 @@ class Verifier:
                 # Levenshtein distance is length of real path
                 cur_distance= len(mrt_path)
                 self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
-                self.levenshtein_d += cur_distance
+                self.levenshtein_d.append(cur_distance)
                 continue;
 
             # If extrapolated path is complete
@@ -404,7 +404,7 @@ class Verifier:
                 # Levenshtein compare
                 cur_distance = Verifier.levenshtein_opt(mrt_path, ext_path)
                 self.levenshtein_avg = self.levenshtein_avg + (cur_distance - self.levenshtein_avg) / self.ver_count
-                self.levenshtein_d += cur_distance
+                self.levenshtein_d.append(cur_distance)
                 
                 # Classify Failure
                 if cur_distance != 0:
@@ -464,6 +464,11 @@ class Verifier:
 
         # Levenshtein Values
         f.write("%f\n" % self.levenshtein_avg)
+        str_l = []
+        for x in self.levenshtein_d:
+            str_l.append(str(x))
+        f.write(','.join(str_l))
+        f.write("\n")
         f.close()
     
     def output_cli(self):
@@ -493,7 +498,6 @@ class Verifier:
         
         # Levenshtein Values
         print("%f" % self.levenshtein_avg)
-        print("%d" % self.levenshtein_d)
 
 
 def main():
