@@ -33,6 +33,7 @@ class Trial:
         self.mrt_f = []
         self.inference_f = []
         self.levenshtein_avg = []
+        self.levenshtein_d = []
 
     def add_verifiable(self, num):
         self.verifiable.append(num)
@@ -69,6 +70,9 @@ class Trial:
 
     def add_levenshtein_avg(self, num):
         self.levenshtein_avg.append(num)
+
+    def add_levenshtein_d(self, lst):
+        self.levenshtein_d.append(lst)
 
 """ Handles loading data into the Trial objects"""
 class Switch(object):
@@ -111,6 +115,9 @@ class Switch(object):
     def n_10(self, trial, row):
         trial.add_levenshtein_avg(float(row[0]))
 
+    def n_11(self, trial, row):
+        trial.add_levenshtein_d(map(int, list(row)))
+
 def check_file(fn):
     """Opens a given file if it exists."""
     if (path.exists(fn)):
@@ -126,7 +133,7 @@ def load_data(trial, fn):
     with open(check_file(fn), "r+") as csvFile:
         readCSV = csv.reader(csvFile, delimiter=',')
         for row in readCSV:
-            s.num_to_method(line_n%11, trial, row)
+            s.num_to_method(line_n%12, trial, row)
             line_n += 1
 
 def plot_ld(full, origin_o, no_prop):
@@ -173,7 +180,6 @@ def main():
     full_lev_d = np.array(full_ext.levenshtein_avg)
     oo_lev_d = np.array(origin_only.levenshtein_avg)
     np_lev_d = np.array(mrt_no_prop.levenshtein_avg)
-    
     
     ttest_res = sts.ttest_ind(full_lev_d, oo_lev_d, equal_var=False)
     print("Full vs. Origin Only T-Test")
