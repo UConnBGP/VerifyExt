@@ -12,8 +12,10 @@ import sys
 import shutil
 import csv
 import numpy as np
-import scipy as sp
-
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import scipy.stats as sts
 from os import path
 from datetime import datetime
 
@@ -80,53 +82,73 @@ class Switch(object):
         pass
 
     def n_1(self, trial, row):
-        trial.add_verifiable(row[1])
+        trial.add_verifiable(int(row[1]))
 
     def n_2(self, trial, row):
-        trial.add_mrt_len(row[0])
+        trial.add_mrt_len(float(row[0]))
     
     def n_3(self, trial, row):
-        trial.add_ext_len(row[0])
+        trial.add_ext_len(float(row[0]))
     
     def n_4(self, trial, row):
-        trial.add_kcomp_s(list(row))
+        trial.add_kcomp_s(map(int, list(row)))
     
     def n_5(self, trial, row):
-        trial.add_kcomp_f(list(row))
+        trial.add_kcomp_f(map(int, list(row)))
 
     def n_6(self, trial, row):
-        trial.add_prefix_f(row[0])
+        trial.add_prefix_f(int(row[0]))
 
     def n_7(self, trial, row):
-        trial.add_origin_f(row[0])
+        trial.add_origin_f(int(row[0]))
     
     def n_8(self, trial, row):
-        trial.add_traceback_f(row[0])
+        trial.add_traceback_f(int(row[0]))
     
     def n_9(self, trial, row):
-        trial.add_compare_f(row[0])
+        trial.add_compare_f(int(row[0]))
 
     def n_10(self, trial, row):
-        trial.add_levenshtein_avg(row[0])
+        trial.add_levenshtein_avg(float(row[0]))
 
-def open_file(fn):
+def check_file(fn):
     """Opens a given file if it exists."""
     if (path.exists(fn)):
-        f = open(fn, "r+")
-        return f
+        return fn
     else:
-        print("%s missing" % sys.argv[1], file=sys.stderr)
+        print("%s missing" % fn, file=sys.stderr)
         sys.exit(-1)
 
-def load_data(trial, f):
+def load_data(trial, fn):
     """Loads data of a given file into a given trial."""
     line_n = 0
     s = Switch()
-    with f as csvFile:
+    with open(check_file(fn), "r+") as csvFile:
         readCSV = csv.reader(csvFile, delimiter=',')
         for row in readCSV:
             s.num_to_method(line_n%11, trial, row)
             line_n += 1
+
+def plot_ld(data):
+    N = 5
+    menMeans = (20, 35, 30, 35, 27)
+    womenMeans = (25, 32, 34, 20, 25)
+    menStd = (2, 3, 4, 1, 2)
+    womenStd = (3, 5, 2, 3, 3)
+    ind = np.arange(N)    # the x locations for the groups
+    width = 0.35       # the width of the bars: can also be len(x) sequence
+
+    p1 = plt.bar(ind, menMeans, width, yerr=menStd)
+    p2 = plt.bar(ind, womenMeans, width,
+                         bottom=menMeans, yerr=womenStd)
+
+    plt.ylabel('Scores')
+    plt.title('Scores by group and gender')
+    plt.xticks(ind, ('G1', 'G2', 'G3', 'G4', 'G5'))
+    plt.yticks(np.arange(0, 81, 10))
+    plt.legend((p1[0], p2[0]), ('Men', 'Women'))
+
+    plt.show()
 
 def main():
     """Generates plots for a given set of trials."""
@@ -143,23 +165,27 @@ def main():
     
     # Data for normal verification runs
     full_ext = Trial()
-    full_file = open_file(fn1)
-    load_data(full_ext, full_file)
-    full_file.close()
+    load_data(full_ext, fn1)
     
     # Data for origin only verification runs
     origin_only = Trial()
-    origin_file = open_file(fn2)
-    load_data(origin_only, origin_file)
-    origin_file.close()
+    load_data(origin_only, fn2)
     
     # Data for MRT no propagation verfication runs
     mrt_no_prop = Trial()
-    no_prop_file = open_file(fn3)
-    load_data(mrt_no_prop, no_prop_file)
-    no_prop_file.close()
+    load_data(mrt_no_prop, fn3)
 
     print(datetime.now().strftime("%c") + ": Processing data.")
+
+    full_lev_d = np.array(full_ext.levenshtein_avg)
+    oo_lev_d = np.array(origin_only.levenshtein_avg)
+    np_lev_d = np.array(mrt_no_prop.levenshtein_avg)
+    
+    print(full_lev_d)
+    ttest_res = sts.ttest_ind(full_lev_d, oo_lev_d, equal_var=False)
+    print(ttest_res)
+    plot_ld(full_lev_d)
+
 
 if __name__ == "__main__":
     main()

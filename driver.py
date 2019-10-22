@@ -5,7 +5,7 @@ def main():
     
     collectors_peer = [51405, 35266, 18106, 29140, 28917, 8283, 25220, 50304, 53070, 196753]
     collectors_cust = [47950, 53013, 27446, 680, 45177, 12350, 7660, 198385, 27678, 1351]
-    for AS in collectors_old:
+    for AS in collectors_peer:
         v = Verifier(AS, 0)
         v.run()
         v.output()
