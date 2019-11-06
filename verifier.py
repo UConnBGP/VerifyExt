@@ -74,6 +74,10 @@ class Verifier:
         self.orig_f = 0
         self.traceback_f = 0
         self.compare_f = 0
+        # Compare Failure Classification
+        self.missing_f = 0
+        self.mrt_f = [0] * 10
+        self.inference_f = [0] * 10
 
 
     def connect_to_db(self):
@@ -195,7 +199,8 @@ class Verifier:
         relationships = cursor.fetchall()
         ptp_dict = {}
         for rel in relationships:
-            ptp_dict[rel[0]] = rel[1]
+            key = str(rel[0]) + str(rel[1])
+            ptp_dict[key] = None
         return ptp_dict
 
     def get_ptc_rel(self, cursor):
@@ -209,7 +214,8 @@ class Verifier:
         relationships = cursor.fetchall()
         ptc_dict = {}
         for rel in relationships:
-            ptc_dict[rel[0]] = rel[1]
+            key = str(rel[0]) + str(rel[1])
+            ptc_dict[key] = None
         return ptc_dict
 
     def traceback(self, ext_dict, AS, prefix, origin, result_list):
@@ -259,6 +265,47 @@ class Verifier:
                 self.k[i] += 1
             else:
                 self.l[i] += 1
+                break
+
+    def k_compare(self, mrt_path, prop_path, inf_l, ptp_dict, ptc_dict):
+        """Simple K compare method, with failure classification.
+        Parameters:
+        prop_path  Propagated path given by Extrapolation results
+        mrt_path  Correct path given by MRT announcement
+       
+        Returns:
+        result_list  A list of correct and incorrect hops.  
+        """
+        # If propagted path is empty
+        if not prop_path:
+            self.l[0] += 1
+        
+        # Reverse index to start at end of lists
+        for i, (ext, mrt) in enumerate(zip(mrt_path, prop_path)):
+            if ext == mrt:
+                self.k[i] += 1
+            else:
+                self.l[i] += 1
+                # Inference check
+                if len(ext)-i <= inf_l:
+                    inference_f[i] += 1
+                else:
+                    mrt_f[i] += 1
+                # Absent relationship check
+                absent = True
+                low = min(ext, mrt)
+                high = max(ext, mrt)
+                ptp_key = str(low) + str(high)
+                if ptp_key in ptp_dict:
+                    absent = False
+                ptc_key1 = str(ext) + str(mrt)
+                ptc_key2 = str(mrt) + str(ext)
+                elif ptc_key1 in ptc_dict:
+                    absent = False
+                elif ptc_key2 in ptc_dict:
+                    absent = False
+                if absent == True:
+                    missing_f += 1
                 break
 
     def call_counter(func):
@@ -318,7 +365,6 @@ class Verifier:
     def run(self):
         # Build the MRT control data set
         print(datetime.now().strftime("%c") + ": Getting MRT announcements...")
-        
 	# Dict = {prefix: (as_path, origin)}
         cursor = self.connect_to_db();
         mrt_set = self.get_mrt_anns(cursor, self.ctrl_AS)
@@ -326,10 +372,15 @@ class Verifier:
         
         # Build the Ext data set for comparison
         print(datetime.now().strftime("%c") + ": Getting extrapolated announcements...")
-        # Dict = {current ASN + prefix: (origin, received from ASN)}
+        # Dict = {current ASN + prefix: (path, origin, inference length)}
         cursor = self.connect_to_db();
         ext_set = self.get_fp_anns(cursor)
+        cursor.close()
         
+        cursor = self.connect_to_db();
+        ptp_set = self.get_ptp_rel(cursor)
+        ptc_set = self.get_ptc_rel(cursor)
+
         # Cleanup
         cursor.close()
         cursor = None
@@ -399,7 +450,7 @@ class Verifier:
                 # Compare paths
                 mrt_path.reverse()
                 ext_path.reverse()
-                self.k_compare(mrt_path, ext_path)
+                self.k_compare(mrt_path, ext_path, ext_inference_l, ptp_set, ptc_set)
 
                 # Levenshtein compare
                 cur_distance = Verifier.levenshtein_opt(mrt_path, ext_path)
