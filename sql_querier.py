@@ -41,28 +41,44 @@ class Querier:
             print(datetime.now().strftime("%c") + ": Login successful.")
         except:
             print(datetime.now().strftime("%c") + ": Login failed.")
-        # Create the cursor
-        cur = conn.cursor()
-        return cur
+        # Return connection
+        return conn
 
-    def collectors_tbl(self):
+    def collectors_tbl(self, cursor):
         # Counts for collectors’s prefixes
-        sql_collectors = "CREATE TABLE all_collector_stats AS \
+        print(datetime.now().strftime("%c") + ": Creating collector quality table...")
+        sql_collectors = "CREATE TABLE collector_quality AS \
         SELECT as_path[1] asn, \
                COUNT(DISTINCT (prefix)) prefix_only, \
                COUNT(DISTINCT (prefix, origin)) prefix_origin, \
                COUNT(DISTINCT (prefix, as_path)) prefix_path \
         FROM mrt_w_roas GROUP BY as_path[1] ORDER BY prefix_path DESC;"
+        cursor.execute(sql_collectors)
         return sql_collectors
 
-    def collectors_conn_tbl(self):
+    def collectors_good_tbl(self, cursor):
+        # Good Collectors
+        print(datetime.now().strftime("%c") + ": Creating good collectors table...")
+        sql_good = "CREATE TABLE collector_good AS \
+        SELECT * FROM collector_quality \
+        WHERE prefix_only > 100000 AND prefix_only = prefix_path;"
+        cursor.execute(sql_good)
+        return sql_good
+
+    def select_num_collectors(self, cursor):
+        # Select the number of good collectors
+        sql_num = "SELECT COUNT(*) FROM collector_good"
+        return sql_num
+
+    def collectors_conn_tbl(self, cursor):
         # Collector Caida Connectivity
+        print(datetime.now().strftime("%c") + ": Creating collector connectivity table...")
         sql_conn = "CREATE TABLE collector_connectivity AS ( \
         SELECT ases.asn AS asn, \
             COALESCE(prov.prov_conn, 0) AS num_customers, \
             COALESCE(cust.cust_conn, 0) AS num_providers, \
-            COALESCE(p1.peer_conn, 0) + COALESCE(p2.peer_conn, 0) AS num_peer \
-        FROM all_collector_stats AS ases \
+            COALESCE(p1.peer_conn, 0) + COALESCE(p2.peer_conn, 0) AS num_peers \
+        FROM collector_good AS ases \
         LEFT JOIN ( \
         SELECT cp.provider_as AS asn, \
             COUNT(cp.provider_as) AS prov_conn \
@@ -84,55 +100,56 @@ class Querier:
         FROM peers AS p GROUP BY p.peer_as_2) AS p2 \
             ON ases.asn = p2.asn \
         );"
+        cursor.execute(sql_conn)
         return sql_conn
 
-    def collectors_good_tbl(self):
-        # Good Collectors
-        sql_good = "CREATE TABLE collector_conn_good AS \
-        SELECT * FROM all_collector_stats \
-        WHERE prefix_only > 100000 AND prefix_only = prefix_path;"
-        return sql_good
-
-    def verifiable_collector_tbl(self):
+    def verifiable_collector_tbl(self, cursor):
         # Verifiable Collectors by most peer
-        sql_peer = "CREATE TABLE verifiable_asns_peer AS \
-        SELECT asn FROM collector_conn_good \
+        print(datetime.now().strftime("%c") + ": Creating verifiable collectors table...")
+        sql_peer = "CREATE TABLE collector_verifiable AS \
+        SELECT asn FROM collector_connectivity \
         ORDER BY num_peers DESC LIMIT 100;"
+        cursor.execute(sql_peer)
         return sql_peer
 
-    def verifiable_prefix_tbl(self, n):
+    def verifiable_prefix_tbl(self, cursor, n):
         # Verifiable Prefixes
         # TODO dynamic collector count
-        sql_prefixes = "CREATE TABLE verifiable_prefixes AS \
+        print(datetime.now().strftime("%c") + ": Creating verifiable prefixes table...")
+        sql_prefixes = "CREATE TABLE prefix_verifiable AS \
         SELECT prefix \
         FROM (SELECT mrt.prefix, \
                      COUNT(mrt.prefix) AS count \
-              FROM mrt_w_roas_v2 AS mrt \
-              INNER JOIN (SELECT asn FROM all_asn_stats \
-                          WHERE prefix_only > 100000 AND prefix_only = prefix_path) \
-                          AS pa \
-              ON mrt.as_path[1] = pa.asn GROUP BY mrt.prefix ORDER BY count DESC) \
+              FROM mrt_w_roas AS mrt \
+              INNER JOIN (SELECT asn FROM collector_good) \
+                          AS c \
+              ON mrt.as_path[1] = c.asn GROUP BY mrt.prefix ORDER BY count DESC) \
               AS foo \
         WHERE count >= 189;"
+        cursor.execute(sql_prefixes)
         return sql_prefixes
 
-    def mrt_small_tbl(self, n):
+    def mrt_small_tbl(self, cursor, n):
         # Select mrt_small table (1000 random good prefixes)
-        sql_mrt_small = "CREATE TABLE mrt_small_b AS \
+        print(datetime.now().strftime("%c") + ": Creating mrt_small table...")
+        sql_mrt_small = "CREATE TABLE mrt_small AS \
         SELECT m.time, m.prefix, m.as_path, m.origin \
         FROM (SELECT prefix \
               FROM (SELECT DISTINCT prefix \
-                    FROM verifiable_prefixes) AS foo \
+                    FROM prefix_verifiable) AS foo \
               ORDER BY RANDOM() LIMIT 1000) AS r, \
              mrt_w_roas m \
         WHERE m.prefix=r.prefix;"
+        cursor.execute(sql_mrt_small)
         return sql_mrt_small
 
-    def ctrl_tbl(self, n):
+    def ctrl_tbl(self, cursor, n):
         # Select trial ASNs
+        print(datetime.now().strftime("%c") + ": Creating control collectors table...")
         sql_ctrl = "CREATE TABLE ctrl_coll AS \
-        SELECT asn FROM verifiable_asns_peer \
+        SELECT asn FROM collector_verifiable \
         ORDER BY RANDOM() LIMIT 10"
+        cursor.execute(sql_ctrl)
         return sql_ctrl
 
 def main():
@@ -148,17 +165,22 @@ def main():
         sys.exit(-1)
     
     q = Querier()
+    conn = q.connect_to_db()
+    cur = conn.cursor()
 
-    cursor = q.connect_to_db();
+    q.collectors_tbl(cur)
+    q.collectors_good_tbl(cur)
+    q.collectors_conn_tbl(cur)
+    q.verifiable_collector_tbl(cur)
+    q.verifiable_prefix_tbl(cur, 189)
+    q.mrt_small_tbl(cur, 1000)
+    q.ctrl_tbl(cur, 20)
+    
+    cur.close()
+    conn.commit()
 
-    cursor.execute(q.collectors_tbl())
-    cursor.execute(q.collectors_conn_tbl())
-    cursor.execute(q.collectors_good_tbl())
-    cursor.execute(q.verifiable_collector_tbl())
-    cursor.execute(q.verifiable_prefix_tbl())
-    cursor.execute(q.mrt_small_tbl(1000))
-    cursor.execute(q.ctrl_tbl(20))
-    cursor.close()
+    if conn is not None:
+        conn.close()
     
 if __name__ == "__main__":
     main()

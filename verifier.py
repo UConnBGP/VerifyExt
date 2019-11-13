@@ -25,13 +25,14 @@ CONFIG_LOC = r"/etc/bgp/bgp.conf"
 class Verifier:
     """This class performs verification for a single AS."""
     
-    def __init__(self, asn, origin_only):
+    def __init__(self, asn, origin_only, trace_back = False):
         """Parameters:
         asn  A string or int representation of 32 bit ASN.
         origin_only  A integer to select extrapolator data.
         """
         self.ctrl_AS = int(asn)
         self.oo = int(origin_only)
+        self.tb = trace_back
         
         # Set dynamic SQL table names
         self.mrt_table =  r"verify_ctrl_" + str(asn)
@@ -393,6 +394,7 @@ class Verifier:
         # For each prefix in the ASes MRT announcements
         print(datetime.now().strftime("%c") + ": Performing verification for " + str(self.prefixes) + " prefixes")
         for prefix in mrt_set:
+            # MRT Path data
             mrt_pair = mrt_set[prefix]
             mrt_path = mrt_pair[0]
             mrt_l = len(mrt_path)
@@ -419,6 +421,7 @@ class Verifier:
                 self.levenshtein_d.append(cur_distance)
                 continue;
             
+            # Extrapolated path data
             ext_triple = ext_set[prefix]
             ext_path = ext_triple[0]
             ext_l = len(ext_path)
@@ -441,13 +444,13 @@ class Verifier:
 
             # If extrapolated path is complete
             if (ext_path != None):
-                # Update Ext length stats
+                # Update extrapolated length stats
                 self.ver_count += 1
                 if ext_l > self.ext_max_len:
                     self.ext_max_len = ext_l
                 self.ext_avg_len = self.ext_avg_len + (ext_l - self.ext_avg_len) / self.cur_count
 
-                # Compare paths
+                # K Compare paths
                 mrt_path.reverse()
                 ext_path.reverse()
                 self.k_compare(mrt_path, ext_path, ext_inference_l, ptp_set, ptc_set)
