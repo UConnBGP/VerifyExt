@@ -52,7 +52,7 @@ class Querier:
                COUNT(DISTINCT (prefix)) prefix_only, \
                COUNT(DISTINCT (prefix, origin)) prefix_origin, \
                COUNT(DISTINCT (prefix, as_path)) prefix_path \
-        FROM mrt_w_roas GROUP BY as_path[1] ORDER BY prefix_path DESC;"
+        FROM mrt_announcements GROUP BY as_path[1] ORDER BY prefix_path DESC;"
         cursor.execute(sql_collectors)
         return sql_collectors
 
@@ -120,12 +120,12 @@ class Querier:
         SELECT prefix \
         FROM (SELECT mrt.prefix, \
                      COUNT(mrt.prefix) AS count \
-              FROM mrt_w_roas AS mrt \
-              INNER JOIN (SELECT asn FROM collector_good) \
+              FROM mrt_announcements AS mrt \
+              INNER JOIN (SELECT asn FROM collector_verifiable) \
                           AS c \
               ON mrt.as_path[1] = c.asn GROUP BY mrt.prefix ORDER BY count DESC) \
               AS foo \
-        WHERE count >= 189;"
+        WHERE count >= 90;"
         cursor.execute(sql_prefixes)
         return sql_prefixes
 
@@ -138,7 +138,7 @@ class Querier:
               FROM (SELECT DISTINCT prefix \
                     FROM prefix_verifiable) AS foo \
               ORDER BY RANDOM() LIMIT 1000) AS r, \
-             mrt_w_roas m \
+             mrt_announcements m \
         WHERE m.prefix=r.prefix;"
         cursor.execute(sql_mrt_small)
         return sql_mrt_small
@@ -148,7 +148,7 @@ class Querier:
         print(datetime.now().strftime("%c") + ": Creating control collectors table...")
         sql_ctrl = "CREATE TABLE ctrl_coll AS \
         SELECT asn FROM collector_verifiable \
-        ORDER BY RANDOM() LIMIT 10"
+        ORDER BY RANDOM() LIMIT 25"
         cursor.execute(sql_ctrl)
         return sql_ctrl
 
