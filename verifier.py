@@ -25,7 +25,7 @@ CONFIG_LOC = r"/etc/bgp/bgp.conf"
 class Verifier:
     """This class performs verification for a single AS."""
     
-    def __init__(self, asn, origin_only, trace_back = False):
+    def __init__(self, asn, origin_only, trial, trace_back = False):
         """Parameters:
         asn  A string or int representation of 32 bit ASN.
         origin_only  A integer to select extrapolator data.
@@ -35,19 +35,19 @@ class Verifier:
         self.tb = trace_back
         
         # Set dynamic SQL table names
-        self.mrt_table =  r"verify_ctrl_" + str(asn)
+        self.mrt_table =  r"verify_ctrl_" + str(asn) + "_" + str(trial)
         if (self.oo == 0):
             print(datetime.now().strftime("%c") + ": Performing verification for AS" + str(asn))
             print(datetime.now().strftime("%c") + ": Setting full path verification.")
-            self.ext_table = r"verify_data_" + str(asn)
+            self.ext_table = r"verify_data_" + str(asn) + "_" + str(trial)
         elif (self.oo == 1):
             print(datetime.now().strftime("%c") + ": Performing verification for AS" + str(asn))
             print(datetime.now().strftime("%c") + ": Setting origin only verification.")
-            self.ext_table = "verify_data_" + str(asn) + "_oo"
+            self.ext_table = "verify_data_" + str(asn) + "_oo_" + str(trial)
         else:
             print(datetime.now().strftime("%c") + ": Performing verification for AS" + str(asn))
             print(datetime.now().strftime("%c") + ": Setting MRT only verification.")
-            self.ext_table = "verify_data_" + str(asn) + "_mo"
+            self.ext_table = "verify_data_" + str(asn) + "_mo_" + str(trial)
 
         # Number of prefixes in MRT and number verifiable
         self.prefixes = 0
@@ -72,13 +72,14 @@ class Verifier:
         self.levenshtein_avg = 0
         # Failure Classification
         self.pref_f = 0
+        self.pref_f_set = []
         self.orig_f = 0
         self.traceback_f = 0
         self.compare_f = 0
         # Compare Failure Classification
-        self.missing_f = 0
-        self.mrt_f = [0] * 10
-        self.inference_f = [0] * 10
+        self.missing_f = 0              # Rel missing from caida
+        self.seed_f = [0] * 10          # Seeding failure
+        self.prop_f = [0] * 10          # Propagation Failure
 
 
     def connect_to_db(self):
@@ -100,9 +101,7 @@ class Verifier:
             print(datetime.now().strftime("%c") + ": Login successful.")
         except:
             print(datetime.now().strftime("%c") + ": Login failed.")
-        # Create the cursor
-        cur = conn.cursor("ver_cursor")
-        return cur
+        return conn
 
     def get_mrt_anns(self, cursor, AS):
         """Creates a dictionary from the the set of prefix/origins as key-value pairs.
@@ -288,25 +287,25 @@ class Verifier:
             else:
                 self.l[i] += 1
                 # Inference check
-                if len(ext)-i <= inf_l:
-                    inference_f[i] += 1
+                if len(prop_path)-i <= inf_l:
+                    self.prop_f[i] += 1
                 else:
-                    mrt_f[i] += 1
+                    self.seed_f[i] += 1
                 # Absent relationship check
                 absent = True
                 low = min(ext, mrt)
                 high = max(ext, mrt)
                 ptp_key = str(low) + str(high)
-                if ptp_key in ptp_dict:
-                    absent = False
                 ptc_key1 = str(ext) + str(mrt)
                 ptc_key2 = str(mrt) + str(ext)
+                if ptp_key in ptp_dict:
+                    absent = False
                 elif ptc_key1 in ptc_dict:
                     absent = False
                 elif ptc_key2 in ptc_dict:
                     absent = False
                 if absent == True:
-                    missing_f += 1
+                    self.missing_f += 1
                 break
 
     def call_counter(func):
@@ -364,26 +363,34 @@ class Verifier:
         return res
 
     def run(self):
+        # Connect to db
+        conn = self.connect_to_db();
+        
         # Build the MRT control data set
         print(datetime.now().strftime("%c") + ": Getting MRT announcements...")
+        
+        # Create the cursor
+        cur = conn.cursor("ver_cursor")
 	# Dict = {prefix: (as_path, origin)}
-        cursor = self.connect_to_db();
-        mrt_set = self.get_mrt_anns(cursor, self.ctrl_AS)
-        cursor.close()
+        mrt_set = self.get_mrt_anns(cur, self.ctrl_AS)
+        cur.close()
         
         # Build the Ext data set for comparison
         print(datetime.now().strftime("%c") + ": Getting extrapolated announcements...")
         # Dict = {current ASN + prefix: (path, origin, inference length)}
-        cursor = self.connect_to_db();
-        ext_set = self.get_fp_anns(cursor)
-        cursor.close()
+        cur = conn.cursor("ver_cursor")
+        ext_set = self.get_fp_anns(cur)
+        cur.close()
         
-        cursor = self.connect_to_db();
-        ptp_set = self.get_ptp_rel(cursor)
-        ptc_set = self.get_ptc_rel(cursor)
+        cur = conn.cursor("ver_cursor")
+        ptp_set = self.get_ptp_rel(cur)
+        cur.close()
+        
+        cur = conn.cursor("ver_cursor")
+        ptc_set = self.get_ptc_rel(cur)
+        cur.close()
 
         # Cleanup
-        cursor.close()
         cursor = None
         gc.collect()
 
@@ -411,6 +418,7 @@ class Verifier:
             if prefix not in ext_set:
                 # Classify the failure
                 self.pref_f += 1
+                self.pref_f_set.append((prefix,mrt_origin))
                 # Verifiable failer
                 self.ver_count += 1
                 # Immediate failure for K compare
@@ -485,11 +493,11 @@ class Verifier:
             f = open(fn, "w+")
         
         if (self.oo == 0):
-            f.write("%s-Full\n" % self.ctrl_AS)
+            f.write("%s\n" % self.ctrl_AS)
         elif (self.oo == 1):
-            f.write("%s-OO\n" % self.ctrl_AS)
+            f.write("%s\n" % self.ctrl_AS)
         else:
-            f.write("%s-MO\n" % self.ctrl_AS)
+            f.write("%s\n" % self.ctrl_AS)
         f.write("%d,%d\n" % (self.prefixes, self.verifiable))
         
         # Path statistics
@@ -510,7 +518,7 @@ class Verifier:
         f.write(','.join(str_l))
         f.write("\n")
         
-        # Failure classification
+        # Basic Failure classification
         f.write("%d\n" % self.pref_f)
         f.write("%d\n" % self.orig_f)
         f.write("%d\n" % self.traceback_f)
@@ -523,14 +531,27 @@ class Verifier:
             str_l.append(str(x))
         f.write(','.join(str_l))
         f.write("\n")
+
+        # Path Failure classification
+        f.write("%d\n" % self.missing_f)
+        # Seeding Failure
+        str_l = []
+        for x in self.seed_f:
+            str_l.append(str(x))
+        f.write(','.join(str_l)) 
+        f.write("\n")
+        # Propagation Failure
+        str_l = []
+        for x in self.prop_f:
+            str_l.append(str(x))
+        f.write(','.join(str_l)) 
+        f.write("\n")
+
         f.close()
     
     def output_cli(self):
         """Outputs stats for this AS to the CLI."""
-        if self.oo == 0:
-            print("%s" % self.ctrl_AS)
-        else:
-            print("%s-OO" % self.ctrl_AS)
+        print("%s" % self.ctrl_AS)
         print("%d,%d" % (self.prefixes, self.verifiable))
        
         print("%f" % self.mrt_avg_len)

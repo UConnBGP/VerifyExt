@@ -114,29 +114,28 @@ class Querier:
 
     def verifiable_prefix_tbl(self, cursor, n):
         # Verifiable Prefixes
-        # TODO dynamic collector count
         print(datetime.now().strftime("%c") + ": Creating verifiable prefixes table...")
-        sql_prefixes = "CREATE TABLE prefix_verifiable AS \
+        sql_prefixes = "CREATE TABLE prefix_verifiable_probes AS \
         SELECT prefix \
         FROM (SELECT mrt.prefix, \
                      COUNT(mrt.prefix) AS count \
               FROM mrt_announcements AS mrt \
-              INNER JOIN (SELECT asn FROM collector_verifiable) \
+              INNER JOIN (SELECT asn FROM probes_verifiable) \
                           AS c \
               ON mrt.as_path[1] = c.asn GROUP BY mrt.prefix ORDER BY count DESC) \
               AS foo \
-        WHERE count >= 90;"
+        WHERE count >= 32;"
         cursor.execute(sql_prefixes)
         return sql_prefixes
 
     def mrt_small_tbl(self, cursor, n):
         # Select mrt_small table (1000 random good prefixes)
         print(datetime.now().strftime("%c") + ": Creating mrt_small table...")
-        sql_mrt_small = "CREATE TABLE mrt_small AS \
+        sql_mrt_small = "CREATE TABLE mrt_small_probes AS \
         SELECT m.time, m.prefix, m.as_path, m.origin \
         FROM (SELECT prefix \
               FROM (SELECT DISTINCT prefix \
-                    FROM prefix_verifiable) AS foo \
+                    FROM prefix_verifiable_probes) AS foo \
               ORDER BY RANDOM() LIMIT 1000) AS r, \
              mrt_announcements m \
         WHERE m.prefix=r.prefix;"
@@ -146,8 +145,8 @@ class Querier:
     def ctrl_tbl(self, cursor, n):
         # Select trial ASNs
         print(datetime.now().strftime("%c") + ": Creating control collectors table...")
-        sql_ctrl = "CREATE TABLE ctrl_coll AS \
-        SELECT asn FROM collector_verifiable \
+        sql_ctrl = "CREATE TABLE ctrl_coll_probes AS \
+        SELECT asn FROM probes_verifiable \
         ORDER BY RANDOM() LIMIT 25"
         cursor.execute(sql_ctrl)
         return sql_ctrl
@@ -168,13 +167,13 @@ def main():
     conn = q.connect_to_db()
     cur = conn.cursor()
 
-    q.collectors_tbl(cur)
-    q.collectors_good_tbl(cur)
-    q.collectors_conn_tbl(cur)
-    q.verifiable_collector_tbl(cur)
-    q.verifiable_prefix_tbl(cur, 189)
+    #q.collectors_tbl(cur)
+    #q.collectors_good_tbl(cur)
+    #q.collectors_conn_tbl(cur)
+    #q.verifiable_collector_tbl(cur)
+    q.verifiable_prefix_tbl(cur, 1)
     q.mrt_small_tbl(cur, 1000)
-    q.ctrl_tbl(cur, 20)
+    q.ctrl_tbl(cur, 25)
     
     cur.close()
     conn.commit()
