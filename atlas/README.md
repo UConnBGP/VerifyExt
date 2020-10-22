@@ -9,7 +9,7 @@ $ ./download_and_load_db.sh
 This will take about 30 minutes. The database table will be called atlas_probes
 and it will have the following schema. 
 
-
+```
     Column    |     Type     | Nullable |
 --------------+--------------+----------+
  id           | bigint       | not null |
@@ -22,6 +22,7 @@ and it will have the following schema.
  is_anchor    | boolean      |          |
 Indexes:
     "atlas_probes_pkey" PRIMARY KEY, btree (id)
+```
 
 ## Dependencies
 
